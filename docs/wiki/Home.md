@@ -1,6 +1,6 @@
 # Zen IDE — User Manual
 
-> **A Minimalist, Performant, Opinionated Code Editor**
+> **A minimalist and opinionated IDE built with Python and GTK4**
 
 Welcome to the Zen IDE wiki — the complete user manual covering every feature, keyboard shortcut, configuration option, and workflow tip.
 

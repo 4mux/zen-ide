@@ -1,6 +1,7 @@
 # Zen IDE
 
 <img src="zen_icon.png" width="64" height="64"/>
+
 A minimalist and opinionated IDE built with Python and [GTK4](https://gitlab.gnome.org/GNOME/gtk).
 
 
@@ -58,7 +59,7 @@ zen ~/projects/my-app.zen-workspace   # open a workspace
 
 ### Requirements
 
-- Python 3.14+, [uv](https://docs.astral.sh/uv/), macOS (Homebrew)
+- Python 3.14+, [uv](https://docs.astral.sh/uv/getting-started/installation), macOS (Homebrew)
 
 ## Supported Languages
 
