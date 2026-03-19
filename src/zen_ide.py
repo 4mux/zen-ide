@@ -413,6 +413,7 @@ class ZenIDEWindow(
 
         self._focused_panel = "editor"  # Track which panel has focus
         self._cli_file = None  # File passed via command line (skip workspace restore)
+        self._cli_new_file = None  # Non-existent file passed via CLI (create as temporary)
         self._cli_workspace = None  # Workspace file passed via command line
         self._cli_dir = None  # Directory passed via command line
         self._bottom_panels_created = False  # Track if bottom panels have been created
@@ -482,6 +483,7 @@ class ZenIDEWindow(
                 "new_sketch_pad": self._on_new_sketch_pad,
                 "open": self._on_open,
                 "open_folder": self._on_open_folder,
+                "new_workspace": self._on_new_workspace,
                 "open_workspace": self._on_open_workspace,
                 "edit_workspace": self._on_edit_workspace,
                 "save": self._on_save,
@@ -614,6 +616,7 @@ class ZenIDEApp(Gtk.Application):
         )
         self._pending_workspace = None
         self._pending_file = None
+        self._pending_new_file = None
         self._pending_dir = None
         self._icon_paintable = None
         # Defer icon setup to after first paint (saves ~15ms on startup)
@@ -673,6 +676,9 @@ class ZenIDEApp(Gtk.Application):
                 self._pending_dir = path
             elif os.path.isfile(path):
                 self._pending_file = path
+            else:
+                # File doesn't exist — open as a new unsaved file with that name
+                self._pending_new_file = path
         self.activate()
         return 0
 
@@ -705,6 +711,11 @@ class ZenIDEApp(Gtk.Application):
             win.tree_view.set_visible(False)
             win.bottom_paned.set_visible(False)
 
+        if self._pending_new_file:
+            win._cli_new_file = self._pending_new_file
+            win.tree_view.set_visible(False)
+            win.bottom_paned.set_visible(False)
+
         if self._pending_workspace:
             win._cli_workspace = self._pending_workspace
             self._pending_workspace = None
@@ -726,6 +737,12 @@ class ZenIDEApp(Gtk.Application):
             path = self._pending_file
             self._pending_file = None
             GLib.idle_add(lambda: win.editor_view.open_file(path) and False)
+
+        # Create new file tab for non-existent file path from CLI
+        if self._pending_new_file:
+            path = self._pending_new_file
+            self._pending_new_file = None
+            GLib.idle_add(lambda: win.editor_view.open_or_create_file(path) and False)
 
 
 def main():

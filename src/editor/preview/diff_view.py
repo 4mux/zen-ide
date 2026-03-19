@@ -20,8 +20,8 @@ from shared.git_manager import get_git_manager
 from shared.main_thread import main_thread_call
 from shared.settings import get_setting
 from shared.ui import ZenButton
-from themes import get_theme, subscribe_theme_change
 from shared.ui.zen_entry import ZenSearchEntry
+from themes import get_theme, subscribe_theme_change
 
 # Diff colors as (R, G, B, alpha) for blending with theme background
 DIFF_ADD_RGBA = (46, 160, 67, 0.40)

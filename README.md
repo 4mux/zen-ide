@@ -25,8 +25,8 @@ A minimalist and opinionated IDE built with Python and [GTK4](https://gitlab.gno
 - **Git** — Gutter diff markers, side-by-side diff view, commit history navigation, inline revert
 - **AI Chat** — GitHub Copilot and Anthropic via direct HTTP API with parallel sessions, inline ghost text, streaming responses
 - **Terminal** — VTE with 256-color support, file path linking, shell aliases, workspace folder picker
-- **Dev Pad** (`Cmd+Shift+D`) — Activity tracking, notes, quick resume links
-- **Sketch Pad** (`Cmd+.`) — ASCII/Unicode diagram editor, opens `.zen_sketch` files in editor with box-drawing shapes, arrows, export to PNG
+- **Dev Pad** (`Cmd+.`) — Activity tracking, notes, quick resume links
+- **Sketch Pad** (`Cmd+Shift+D`) — ASCII/Unicode diagram editor, opens `.zen_sketch` files in editor with box-drawing shapes, arrows, export to PNG
 - **36 Themes** — Zen Dark/Light, Dracula, Gruvbox, Tokyo Night, Catppuccin, and more
 - **Vim-Style UI** — Neovim-style floating popups, j/k navigation, context menus
 - **Session Restore** — Reopens last files, layout, and panel positions on startup

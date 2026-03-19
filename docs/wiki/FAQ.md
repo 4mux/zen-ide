@@ -82,9 +82,26 @@ The tree view also uses vim-style `j`/`k`/`h`/`l` navigation, and all popups sup
 
 Click the **+** button in the terminal header to add a new terminal pane.
 
+### How do I create a workspace file?
+
+Use **File → New Workspace...** from the menu. This opens a Save dialog where you choose where to store the `.zen-workspace` file. The file is pre-populated with a template:
+
+```json
+{
+  "folders": [
+    {
+      "name": "my-project",
+      "path": "."
+    }
+  ]
+}
+```
+
+Each folder entry has a `name` (display name in the tree) and a `path` (absolute or relative to the workspace file). After saving, the file opens in the editor for you to customise, and you're asked whether to load the workspace immediately.
+
 ### Can I use multiple workspaces?
 
-Yes! Multiple workspace roots are supported. Add folders via `Cmd+Shift+O` or edit `workspace.folders` in settings.
+Yes! Multiple workspace roots are supported. Add folders to your `.zen-workspace` file, use `Cmd+Shift+O`, or edit `workspace.folders` in settings.
 
 ---
 

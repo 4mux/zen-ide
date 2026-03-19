@@ -11,7 +11,7 @@ code ~/my-project       # Open a folder
 code file.py            # Open a single file
 ```
 
-You can also use **File → Open Workspace** (`Cmd+Shift+O`) from inside the IDE.
+You can also use **File → Open Workspace** (`Cmd+Shift+O`) from inside the IDE, or create a new workspace with **File → New Workspace...**.
 
 ## 2. Navigate Files
 

@@ -124,6 +124,7 @@ Each font component has `family`, `size`, and `weight` sub-keys:
 
 | Setting | Default | Type | Description |
 |---|---|---|---|
+| `workspace.workspace_file` | `""` | string | Path to the loaded `.zen-workspace` file |
 | `workspace.folders` | `[]` | list | Open workspace folder paths |
 | `workspace.last_file` | `""` | string | Last active file (for restore) |
 | `workspace.open_files` | `[]` | list | Currently open tabs |

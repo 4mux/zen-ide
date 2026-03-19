@@ -116,7 +116,34 @@ Neovim-style indent guides show tree depth:
 
 ## Multiple Workspace Roots
 
-Multiple folders can be open simultaneously. Add folders via `Cmd+Shift+O` or by editing `workspace.folders` in settings.
+Multiple folders can be open simultaneously. You can manage workspaces in several ways:
+
+### Creating a Workspace File
+
+Use **File → New Workspace...** to create a `.zen-workspace` file. The format is:
+
+```json
+{
+  "folders": [
+    {
+      "name": "frontend",
+      "path": "/Users/you/projects/frontend"
+    },
+    {
+      "name": "backend",
+      "path": "../backend"
+    }
+  ]
+}
+```
+
+Each entry has a `name` (display label in the tree) and a `path` (absolute, or relative to the workspace file location). After saving, you're prompted to load it immediately.
+
+### Other Ways to Add Folders
+
+- **File → Open Workspace...** (`Cmd+Shift+O`) — open an existing `.zen-workspace` or `.code-workspace` file
+- **File → Edit Workspace...** — edit the current workspace file directly in the editor
+- Edit `workspace.folders` in `~/.zen_ide/settings.json`
 
 The tree preserves expanded state, selection, and scroll position across refreshes.
 

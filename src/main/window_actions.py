@@ -58,6 +58,75 @@ class WindowActionsMixin:
         except GLib.Error:
             pass  # Cancelled
 
+    def _on_new_workspace(self, action, param):
+        """Create a new .zen-workspace file with a template and prompt to save."""
+        import json as json_module
+
+        # Start with a blank template — the user will fill in the folders
+        template = {
+            "folders": [
+                {
+                    "name": "my-project",
+                    "path": ".",
+                }
+            ],
+        }
+        content = json_module.dumps(template, indent=2) + "\n"
+
+        # Show a Save dialog so the user picks where to store the workspace file
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Save New Workspace As")
+
+        # Default file name
+        dialog.set_initial_name("my-project.zen-workspace")
+
+        # Filter for workspace files
+        filter_ws = Gtk.FileFilter()
+        filter_ws.set_name("Zen Workspace Files")
+        filter_ws.add_pattern("*.zen-workspace")
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(filter_ws)
+        dialog.set_filters(filters)
+
+        dialog.save(
+            self,
+            None,
+            lambda d, r: self._on_new_workspace_save_response(d, r, content),
+        )
+
+    def _on_new_workspace_save_response(self, dialog, result, content):
+        """Handle the Save dialog response for a new workspace file."""
+        try:
+            file = dialog.save_finish(result)
+            if not file:
+                return
+            path = file.get_path()
+
+            # Ensure .zen-workspace extension
+            if not path.endswith(".zen-workspace"):
+                path += ".zen-workspace"
+
+            # Write the template to disk
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            # Open the newly created file in the editor for further editing
+            self.editor_view.open_file(path)
+
+            # Ask whether to load this workspace now
+            from popups.confirm_dialog import show_confirm
+
+            show_confirm(
+                self,
+                title="Load Workspace",
+                message=f'Workspace "{os.path.basename(path)}" saved.\n\nDo you want to load it now?',
+                confirm_text="Load",
+                cancel_text="Not Now",
+                on_confirm=lambda: self._load_workspace_file(path),
+            )
+        except GLib.Error:
+            pass  # User cancelled
+
     def _on_open_workspace(self, action, param):
         """Open a .zen-workspace or .code-workspace file."""
         dialog = Gtk.FileDialog()

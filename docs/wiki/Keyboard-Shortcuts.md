@@ -8,7 +8,7 @@ All shortcuts use **Cmd** (⌘) on macOS and **Ctrl** on Linux.
 |---|---|
 | `Cmd+N` | New file |
 | `Cmd+O` | Open file |
-| `Cmd+Shift+O` | Open workspace folder |
+| `Cmd+Shift+O` | Open workspace file |
 | `Cmd+S` | Save file |
 | `Cmd+Shift+S` | Save as |
 | `Cmd+W` | Close current tab |

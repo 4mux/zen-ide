@@ -18,6 +18,7 @@ class MenuBuilder:
         file_section.append("New Sketch Pad", "app.new_sketch_pad")
         file_section.append("Open...", "app.open")
         file_section.append("Open Folder...", "app.open_folder")
+        file_section.append("New Workspace...", "app.new_workspace")
         file_section.append("Open Workspace...", "app.open_workspace")
         file_section.append("Edit Workspace...", "app.edit_workspace")
         file_section.append("Save", "app.save")

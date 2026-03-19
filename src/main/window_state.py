@@ -284,7 +284,7 @@ class WindowStateMixin:
         from shared.settings import get_workspace
 
         # In single-file mode, hide tree/bottom entirely
-        if self._cli_file:
+        if self._cli_file or self._cli_new_file:
             self.tree_view.set_visible(False)
             self.bottom_paned.set_visible(False)
 
@@ -295,6 +295,8 @@ class WindowStateMixin:
 
         if self._cli_file:
             self.set_title(f"Zen IDE — {os.path.basename(self._cli_file)}")
+        elif self._cli_new_file:
+            self.set_title(f"Zen IDE — {os.path.basename(self._cli_new_file)}")
         elif self._cli_workspace:
             self._load_workspace_file(self._cli_workspace)
         elif self._cli_dir:
@@ -369,7 +371,7 @@ class WindowStateMixin:
 
         # Restore active file immediately for fast perceived startup
         # Skip file restoration if a file, workspace, or directory was passed via CLI
-        if self._cli_file or self._cli_workspace or self._cli_dir:
+        if self._cli_file or self._cli_new_file or self._cli_workspace or self._cli_dir:
             self._deferred_open_files_list = []
             self._deferred_last_file = ""
         else:
@@ -466,7 +468,7 @@ class WindowStateMixin:
         self.get_application()._setup_app_icon()
 
         # Create bottom panels
-        if not self._cli_file:
+        if not self._cli_file and not self._cli_new_file:
             self._create_bottom_panels()
 
         # Wire maximize callbacks (now that bottom panels exist)

@@ -23,8 +23,8 @@ from shared.focus_border_mixin import FocusBorderMixin
 from shared.focus_manager import get_component_focus_manager
 from shared.settings import get_setting
 from shared.ui import ZenButton
-from themes import get_theme, subscribe_theme_change
 from shared.ui.zen_entry import ZenEntry, ZenSearchEntry
+from themes import get_theme, subscribe_theme_change
 
 from .color_preview_renderer import ColorPreviewRenderer
 from .semantic_highlight import setup_semantic_highlight, update_semantic_colors
@@ -2577,6 +2577,29 @@ class EditorView(FocusBorderMixin, Gtk.Box):
             self.on_file_opened(None)
         return tab_id
 
+    def open_or_create_file(self, file_path: str) -> bool:
+        """Open a file if it exists, or create a temporary unsaved tab with that name.
+
+        The tab gets the intended file_path and syntax highlighting from the
+        extension, but is marked ``is_new=True`` so it's not written to disk
+        until the user explicitly saves (Cmd+S).
+        """
+        if os.path.isfile(file_path):
+            return self.open_file(file_path)
+
+        # Create a new tab pre-configured for this file path
+        self._close_welcome_tab()
+        tab = EditorTab(file_path=file_path, is_new=True)
+        # Set language/indent from the file extension
+        tab._set_language_from_file(file_path)
+        title = os.path.basename(file_path)
+        tab_id = self._add_tab(tab, title)
+        tab.view.grab_focus()
+        # Trigger file-opened callback to expand collapsed editor
+        if self.on_file_opened:
+            self.on_file_opened(file_path)
+        return True
+
     def new_sketch_file(self):
         """Create a new untitled sketch pad tab."""
         self._close_welcome_tab()
@@ -3048,9 +3071,13 @@ class EditorView(FocusBorderMixin, Gtk.Box):
             if tab_id not in self.tabs:
                 return
             tab = self.tabs[tab_id]
-            if tab.is_new or not tab.file_path:
+            if tab.is_new and not tab.file_path:
                 self._show_save_dialog_by_id(tab_id)
             else:
+                if tab.is_new and tab.file_path:
+                    parent_dir = os.path.dirname(tab.file_path)
+                    if parent_dir:
+                        os.makedirs(parent_dir, exist_ok=True)
                 tab.save_file()
                 self._do_close_tab_by_id(tab_id)
 
@@ -3247,9 +3274,16 @@ class EditorView(FocusBorderMixin, Gtk.Box):
         if getattr(tab, "_is_image", False):
             return False
 
-        if tab.is_new or not tab.file_path:
+        if tab.is_new and not tab.file_path:
             self._show_save_dialog_by_id(tab_id)
             return False
+
+        if tab.is_new and tab.file_path:
+            # New file with a pre-set path (e.g. from `zen newfile.py`) —
+            # create parent directories and save directly without a dialog.
+            parent_dir = os.path.dirname(tab.file_path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
 
         if tab.save_file():
             self._update_tab_title_by_id(tab_id)
