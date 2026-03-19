@@ -6,7 +6,7 @@ Provides JS/TS-specific completions: keywords, globals, imports, and symbols.
 
 import re
 
-from editor.autocomplete import CompletionItem, CompletionKind  # noqa: from __init__.py
+from editor.autocomplete import CompletionItem, CompletionKind
 
 # JavaScript/TypeScript keywords and globals
 JS_KEYWORDS = [

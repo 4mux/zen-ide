@@ -3,23 +3,21 @@ name: Build
 on:
   push:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - run: make install-dev
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
       - run: make lint-check
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     needs: lint
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - run: make install-system-deps
       - run: make install-dev
       - run: make test
+

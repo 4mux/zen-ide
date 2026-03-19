@@ -41,13 +41,13 @@ startup-time: ## Measure startup time (opens and closes IDE)
 	@cd src && $(RUN_ENV) ZEN_STARTUP_BENCH=1 $(IDE_CMD)
 
 lint: ## Run ruff linter and formatter (auto-fix)
-	uv run ruff check --fix && uv run ruff format
+	uvx ruff check --fix && uvx ruff format
 
 lint-check: ## Run ruff linter and formatter (check only, no changes)
-	uv run ruff check && uv run ruff format --check
+	uvx ruff check && uvx ruff format --check
 
 test: ## Run tests with pytest
-	uv run python -m pytest tests/ --color=yes
+	uv run --no-sync python -m pytest tests/ --color=yes
 
 # ── Installation ─────────────────────────────────────────────────────
 
@@ -60,10 +60,11 @@ install: install-system-deps install-py install-dev install-build install-cli ##
 install-system-deps: ## Install system dependencies (GTK4 stack via brew/apt)
 ifeq ($(UNAME_S),Darwin)
 	@echo "Installing GTK4 system dependencies via Homebrew..."
-	brew install gtk4 gtksourceview5 vte3 libadwaita gobject-introspection pkg-config
+	brew install gtk4 gtksourceview5 vte3 libadwaita gobject-introspection pkg-config 2>/dev/null || true
 else ifeq ($(UNAME_S),Linux)
 	@echo "Installing GTK4 system dependencies via apt..."
-	sudo apt-get install -y libgirepository1.0-dev python3-gi python3-gi-cairo \
+	sudo apt-get update
+	sudo apt-get install -y libgirepository1.0-dev libgirepository-2.0-dev libcairo2-dev python3-gi python3-gi-cairo \
 		gir1.2-gtk-4.0 gir1.2-gtksource-5 gir1.2-adw-1 gir1.2-vte-3.91
 endif
 

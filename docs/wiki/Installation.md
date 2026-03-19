@@ -5,7 +5,7 @@
 | Requirement | Minimum |
 |---|---|
 | Python | 3.14+ |
-| OS | macOS 13+ or Linux (X11/Wayland) |
+| OS | macOS 13+ or Linux |
 | GTK4 | 4.x (via Homebrew or apt) |
 | GtkSourceView | 5.x |
 | VTE | 0.70+ (terminal emulator) |

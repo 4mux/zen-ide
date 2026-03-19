@@ -10,7 +10,7 @@ import keyword
 import re
 from pathlib import Path
 
-from editor.autocomplete import CompletionItem, CompletionKind  # noqa: from __init__.py
+from editor.autocomplete import CompletionItem, CompletionKind
 
 # Python builtins
 PYTHON_BUILTINS = [

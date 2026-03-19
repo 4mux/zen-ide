@@ -55,11 +55,11 @@ zen ~/projects/my-app.zen-workspace   # open a workspace
 ### Platform Support
 
 - **macOS** — ✅ Officially supported
-- **Linux** — 🚧 Coming soon
+- **Linux** — ✅ Supported
 
 ### Requirements
 
-- Python 3.14+, [uv](https://docs.astral.sh/uv/getting-started/installation), macOS (Homebrew)
+- Python 3.14+, [uv](https://docs.astral.sh/uv/getting-started/installation), macOS (Homebrew) or Linux (apt)
 
 ## Supported Languages
 
