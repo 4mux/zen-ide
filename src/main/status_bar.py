@@ -11,10 +11,13 @@ A minimal, informative status bar with:
 """
 
 import os
+import sys
 import threading
 from typing import Callable, Optional
 
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
+
+_IS_MACOS = sys.platform == "darwin"
 
 from constants import STATUS_BAR_FONT_FAMILY, STATUS_BAR_HORIZONTAL_PADDING, STATUS_BAR_ITEM_SPACING
 from fonts import get_font_settings, subscribe_font_change
@@ -309,6 +312,11 @@ class StatusBar(Gtk.Box):
         font_size = font_settings.get("size", 13)
         is_zen_dark = theme.name == "zen_dark"
 
+        # macOS CoreText renders wider glyphs / metrics; tighten horizontal padding
+        right_h_pad = 4 if _IS_MACOS else 10
+        right_item_spacing = 2 if _IS_MACOS else STATUS_BAR_ITEM_SPACING
+        self._right_box.set_spacing(right_item_spacing)
+
         # Zen Dark: full blue status bar with white text/icons.
         status_fg = "white" if is_zen_dark else theme.accent_color
 
@@ -382,7 +390,7 @@ class StatusBar(Gtk.Box):
 
             .status-encoding {{
                 background-color: {right_bg};
-                padding: 3px 10px;
+                padding: 3px {right_h_pad}px;
                 font-family: {icon_fallback};
                 font-size: {font_size}pt;
             }}
@@ -392,7 +400,7 @@ class StatusBar(Gtk.Box):
 
             .status-diagnostics {{
                 background-color: {right_bg};
-                padding: 3px 10px;
+                padding: 3px {right_h_pad}px;
                 font-family: {icon_fallback};
                 font-size: {font_size}pt;
             }}
@@ -407,7 +415,7 @@ class StatusBar(Gtk.Box):
 
             .status-modified {{
                 background-color: {right_bg};
-                padding: 3px 10px;
+                padding: 3px {right_h_pad}px;
                 font-family: {icon_fallback};
                 font-size: {font_size}pt;
             }}
@@ -417,7 +425,7 @@ class StatusBar(Gtk.Box):
 
             .status-filetype {{
                 background-color: {right_bg};
-                padding: 3px 10px;
+                padding: 3px {right_h_pad}px;
                 font-family: {icon_fallback};
                 font-size: {font_size}pt;
             }}
@@ -432,7 +440,7 @@ class StatusBar(Gtk.Box):
 
             .status-position {{
                 background-color: {right_bg};
-                padding: 3px 10px;
+                padding: 3px {right_h_pad}px;
                 font-family: {icon_fallback};
                 font-size: {font_size}pt;
             }}
