@@ -192,18 +192,46 @@ class StatusBar(Gtk.Box):
 
         # Encoding section
         # Diagnostics section (error/warning counts)
+        # Outer box separates error group from warning group with inner_spacing
         self._diagnostics_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=inner_spacing)
         self._diagnostics_box.add_css_class("status-diagnostics")
 
-        self._error_label = Gtk.Label(label="")
-        self._error_label.add_css_class("status-diagnostics-text")
-        self._error_label.set_use_markup(True)
-        self._diagnostics_box.append(self._error_label)
+        # Error group: icon + count with tight spacing
+        icon_text_gap = 4
+        error_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=icon_text_gap)
+        error_group.set_valign(Gtk.Align.CENTER)
 
-        self._warning_label = Gtk.Label(label="")
-        self._warning_label.add_css_class("status-diagnostics-text")
-        self._warning_label.set_use_markup(True)
-        self._diagnostics_box.append(self._warning_label)
+        self._error_icon_label = Gtk.Label(label="")
+        self._error_icon_label.add_css_class("status-diagnostics-icon")
+        self._error_icon_label.set_use_markup(True)
+        self._error_icon_label.set_valign(Gtk.Align.CENTER)
+        error_group.append(self._error_icon_label)
+
+        self._error_count_label = Gtk.Label(label="")
+        self._error_count_label.add_css_class("status-diagnostics-text")
+        self._error_count_label.set_use_markup(True)
+        self._error_count_label.set_valign(Gtk.Align.CENTER)
+        error_group.append(self._error_count_label)
+
+        self._diagnostics_box.append(error_group)
+
+        # Warning group: icon + count with tight spacing
+        warning_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=icon_text_gap)
+        warning_group.set_valign(Gtk.Align.CENTER)
+
+        self._warning_icon_label = Gtk.Label(label="")
+        self._warning_icon_label.add_css_class("status-diagnostics-icon")
+        self._warning_icon_label.set_use_markup(True)
+        self._warning_icon_label.set_valign(Gtk.Align.CENTER)
+        warning_group.append(self._warning_icon_label)
+
+        self._warning_count_label = Gtk.Label(label="")
+        self._warning_count_label.add_css_class("status-diagnostics-text")
+        self._warning_count_label.set_use_markup(True)
+        self._warning_count_label.set_valign(Gtk.Align.CENTER)
+        warning_group.append(self._warning_count_label)
+
+        self._diagnostics_box.append(warning_group)
 
         # Initialize with zero counts (visible immediately)
         self.set_diagnostics(0, 0)
@@ -354,7 +382,7 @@ class StatusBar(Gtk.Box):
 
             .status-encoding {{
                 background-color: {right_bg};
-                padding: 3px 0px;
+                padding: 3px 10px;
                 font-family: {icon_fallback};
                 font-size: {font_size}pt;
             }}
@@ -364,9 +392,14 @@ class StatusBar(Gtk.Box):
 
             .status-diagnostics {{
                 background-color: {right_bg};
-                padding: 3px 0px;
+                padding: 3px 10px;
                 font-family: {icon_fallback};
                 font-size: {font_size}pt;
+            }}
+            .nvim-status-bar .status-diagnostics-icon {{
+                color: white;
+                font-size: {font_size + 4}pt;
+                font-family: '{icon_font}';
             }}
             .status-diagnostics-text {{
                 color: white;
@@ -374,7 +407,7 @@ class StatusBar(Gtk.Box):
 
             .status-modified {{
                 background-color: {right_bg};
-                padding: 3px 0px;
+                padding: 3px 10px;
                 font-family: {icon_fallback};
                 font-size: {font_size}pt;
             }}
@@ -384,7 +417,7 @@ class StatusBar(Gtk.Box):
 
             .status-filetype {{
                 background-color: {right_bg};
-                padding: 3px 0px;
+                padding: 3px 10px;
                 font-family: {icon_fallback};
                 font-size: {font_size}pt;
             }}
@@ -399,7 +432,7 @@ class StatusBar(Gtk.Box):
 
             .status-position {{
                 background-color: {right_bg};
-                padding: 3px 0px;
+                padding: 3px 10px;
                 font-family: {icon_fallback};
                 font-size: {font_size}pt;
             }}
@@ -591,12 +624,20 @@ class StatusBar(Gtk.Box):
     def _refresh_diagnostics(self):
         """Re-render diagnostic labels with current theme colors."""
         theme = get_theme()
+        font_settings = get_font_settings("editor")
+        icon_size = font_settings.get("size", 13) + 4
+        icon_font = get_icon_font_name()
         # Zero-count diagnostics always use white to match other status bar texts.
         zero_color = "white"
+
         err_color = theme.term_red if self._errors > 0 else zero_color
-        self._error_label.set_markup(self._font_markup(f"{Icons.ERROR_X} {self._errors}", err_color))
+        self._error_icon_label.set_markup(self._font_markup(Icons.ERROR_X, err_color, icon_size, font_family=icon_font))
+        self._error_count_label.set_markup(self._font_markup(str(self._errors), err_color))
+
         warn_color = theme.warning_color if self._warnings > 0 else zero_color
-        self._warning_label.set_markup(self._font_markup(f"{Icons.WARNING} {self._warnings}", warn_color))
+        self._warning_icon_label.set_markup(self._font_markup(Icons.WARNING, warn_color, icon_size, font_family=icon_font))
+        self._warning_count_label.set_markup(self._font_markup(str(self._warnings), warn_color))
+
         self._diagnostics_box.set_visible(True)
 
     def _on_diagnostics_box_clicked(self, gesture, n_press, x, y):

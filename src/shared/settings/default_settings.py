@@ -58,7 +58,7 @@ DEFAULT_SETTINGS = {
     "status_bar": {
         "show_full_path": True,
         "item_spacing": 0,
-        "inner_spacing": 0,
+        "inner_spacing": 4,
     },
     "layout": {
         "main_splitter": 250,

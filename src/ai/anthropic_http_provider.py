@@ -13,6 +13,7 @@ API key resolution order:
 import json
 import os
 import socket
+import ssl
 import threading
 import time
 import urllib.error
@@ -26,6 +27,18 @@ from typing import Callable, Optional
 # but this timeout ensures the blocking read eventually returns so the thread can check
 # _stop_requested and exit cleanly.
 _SOCKET_READ_TIMEOUT_S = 30
+
+# Maximum number of retries on 429 (rate limit) errors.
+_MAX_RATE_LIMIT_RETRIES = 3
+
+# Base delay (seconds) for exponential backoff on 429.
+_RATE_LIMIT_BASE_DELAY_S = 10
+
+# Maximum number of retries on transient connection errors (SSL, reset, etc.).
+_MAX_TRANSIENT_RETRIES = 2
+
+# Base delay (seconds) for exponential backoff on transient errors.
+_TRANSIENT_BASE_DELAY_S = 2
 
 _API_KEYS_PATH = Path.home() / ".zen_ide" / "api_keys.json"
 _MESSAGES_URL = "https://api.anthropic.com/v1/messages"
@@ -158,7 +171,25 @@ class AnthropicHTTPProvider:
         self._text_response = ""
         self._conversation = list(messages)
 
-        self._stream_request(api_key, messages, on_chunk, on_complete, on_error, on_tool_use)
+        # Apply context truncation on the initial request too — the user
+        # may be continuing a long conversation from saved history.
+        send_messages = self._conversation
+        try:
+            from shared.settings.settings_manager import get_setting
+
+            if get_setting("ai.context_truncation", True):
+                from ai.context_truncation import truncate_conversation
+
+                max_ctx = get_setting("ai.max_context_chars", 500_000)
+                send_messages = truncate_conversation(
+                    self._conversation,
+                    format="anthropic",
+                    max_total_chars=max_ctx,
+                )
+        except Exception:
+            pass  # Truncation failure must never block the request
+
+        self._stream_request(api_key, send_messages, on_chunk, on_complete, on_error, on_tool_use)
 
     def continue_with_tool_results(
         self,
@@ -225,11 +256,30 @@ class AnthropicHTTPProvider:
             if get_setting("ai.context_truncation", True):
                 from ai.context_truncation import truncate_conversation
 
-                send_messages = truncate_conversation(self._conversation, format="anthropic")
+                max_ctx = get_setting("ai.max_context_chars", 500_000)
+                send_messages = truncate_conversation(
+                    self._conversation,
+                    format="anthropic",
+                    max_total_chars=max_ctx,
+                )
         except Exception:
             pass  # Truncation failure must never block the request
 
         self._stream_request(api_key, send_messages, on_chunk, on_complete, on_error, on_tool_use)
+
+    @staticmethod
+    def _is_transient_error(exc: Exception) -> bool:
+        """Check if an exception is a transient connection error worth retrying."""
+        if isinstance(exc, ssl.SSLError):
+            return True
+        if isinstance(exc, ConnectionError):  # ConnectionReset, BrokenPipe, etc.
+            return True
+        if isinstance(exc, OSError):
+            # ECONNRESET, EPIPE, ETIMEDOUT, ENETUNREACH, etc.
+            err_lower = str(exc).lower()
+            if any(kw in err_lower for kw in ("reset", "broken pipe", "timed out", "network")):
+                return True
+        return False
 
     def _stream_request(
         self,
@@ -246,6 +296,7 @@ class AnthropicHTTPProvider:
         def run():
             t0 = time.monotonic()
             stream_error_type = ""
+            transient_retries = 0
             ai_log.request(
                 "anthropic",
                 self._model,
@@ -253,153 +304,239 @@ class AnthropicHTTPProvider:
                 has_tools=bool(self._tools),
                 max_tokens=self._max_tokens,
             )
-            try:
-                body = {
-                    "model": self._model,
-                    "max_tokens": self._max_tokens,
-                    "stream": True,
-                    "messages": messages,
-                }
 
-                if self._system_prompt:
-                    body["system"] = self._system_prompt
+            for attempt in range(_MAX_RATE_LIMIT_RETRIES + 1):
+                if self._stop_requested:
+                    return
 
-                if self._tools:
-                    body["tools"] = self._tools
-
-                # Enable extended thinking for supported models
-                if "opus" in self._model or "sonnet" in self._model:
-                    body["thinking"] = {
-                        "type": "enabled",
-                        "budget_tokens": min(self._max_tokens, 10000),
+                try:
+                    body = {
+                        "model": self._model,
+                        "max_tokens": self._max_tokens,
+                        "stream": True,
+                        "messages": messages,
                     }
 
-                req_data = json.dumps(body).encode("utf-8")
-                req = urllib.request.Request(
-                    _MESSAGES_URL,
-                    data=req_data,
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": _API_VERSION,
-                        "content-type": "application/json",
-                        "accept": "text/event-stream",
-                    },
-                    method="POST",
-                )
+                    if self._system_prompt:
+                        body["system"] = self._system_prompt
 
-                self._current_response = urllib.request.urlopen(req, timeout=300)
+                    if self._tools:
+                        body["tools"] = self._tools
 
-                # Set socket-level read timeout to prevent blocking forever.
-                # The urlopen timeout only covers the connection handshake.
-                # This ensures individual read() calls will time out, allowing
-                # the loop to check _stop_requested periodically.
-                try:
-                    sock = self._current_response.fp.raw._sock
-                    sock.settimeout(_SOCKET_READ_TIMEOUT_S)
-                except Exception:
-                    pass  # Socket access may fail on some platforms; continue anyway
+                    # Enable extended thinking for supported models
+                    if "opus" in self._model or "sonnet" in self._model:
+                        body["thinking"] = {
+                            "type": "enabled",
+                            "budget_tokens": min(self._max_tokens, 10000),
+                        }
 
-                buffer = ""
-                stop_reason = None
+                    req_data = json.dumps(body).encode("utf-8")
+                    req = urllib.request.Request(
+                        _MESSAGES_URL,
+                        data=req_data,
+                        headers={
+                            "x-api-key": api_key,
+                            "anthropic-version": _API_VERSION,
+                            "content-type": "application/json",
+                            "accept": "text/event-stream",
+                        },
+                        method="POST",
+                    )
 
-                while True:
-                    if self._stop_requested:
-                        break
+                    self._current_response = urllib.request.urlopen(req, timeout=300)
 
+                    # Set socket-level read timeout to prevent blocking forever.
+                    # The urlopen timeout only covers the connection handshake.
+                    # This ensures individual read() calls will time out, allowing
+                    # the loop to check _stop_requested periodically.
                     try:
-                        raw_line = self._current_response.readline()
-                    except socket.timeout:
-                        # Socket read timed out — check if we should stop
+                        sock = self._current_response.fp.raw._sock
+                        sock.settimeout(_SOCKET_READ_TIMEOUT_S)
+                    except Exception:
+                        pass  # Socket access may fail on some platforms; continue anyway
+
+                    buffer = ""
+                    stop_reason = None
+
+                    while True:
                         if self._stop_requested:
                             break
-                        continue  # Keep waiting for data
-                    except OSError as e:
-                        stream_error_type = f"OSError: {e}"
-                        ai_log.event("stream_oserror", f"anthropic: {e}")
-                        break
 
-                    if not raw_line:
-                        # End of stream
-                        break
+                        try:
+                            raw_line = self._current_response.readline()
+                        except socket.timeout:
+                            # Socket read timed out — check if we should stop
+                            if self._stop_requested:
+                                break
+                            continue  # Keep waiting for data
+                        except OSError as e:
+                            stream_error_type = f"OSError: {e}"
+                            ai_log.event("stream_oserror", f"anthropic: {e}")
+                            # Check if this is a transient error we can retry
+                            if self._is_transient_error(e) and transient_retries < _MAX_TRANSIENT_RETRIES:
+                                transient_retries += 1
+                                delay = _TRANSIENT_BASE_DELAY_S * (2 ** (transient_retries - 1))
+                                ai_log.event(
+                                    "transient_retry",
+                                    f"anthropic: {e}, attempt {transient_retries}/{_MAX_TRANSIENT_RETRIES}, "
+                                    f"waiting {delay}s",
+                                )
+                                if on_chunk:
+                                    on_chunk(f"{_CONTENT_MARKER}\n[Connection error — retrying in {delay}s...]\n")
+                                self._current_response = None
+                                for _ in range(delay):
+                                    if self._stop_requested:
+                                        return
+                                    time.sleep(1)
+                                # Reset state for retry
+                                t0 = time.monotonic()
+                                stream_error_type = ""
+                                self._tool_calls = []
+                                self._current_tool_call = None
+                                self._current_tool_input_json = ""
+                                self._text_response = ""
+                                break  # Break inner while to retry outer loop
+                            break
 
-                    line = raw_line.decode("utf-8", errors="replace")
-                    buffer += line
+                        if not raw_line:
+                            # End of stream
+                            break
 
-                    while "\n" in buffer:
-                        sse_line, buffer = buffer.split("\n", 1)
-                        result = self._parse_sse_line(sse_line)
-                        if result is None:
-                            continue
-                        if isinstance(result, str):
-                            # Text or thinking chunk
-                            clean = result.lstrip(_THINKING_MARKER).lstrip(_CONTENT_MARKER)
-                            if not result.startswith(_THINKING_MARKER):
-                                self._text_response += clean
-                            if on_chunk:
-                                on_chunk(result)
-                        elif isinstance(result, dict):
-                            if result.get("_stop_reason"):
-                                stop_reason = result["_stop_reason"]
+                        line = raw_line.decode("utf-8", errors="replace")
+                        buffer += line
 
-                self._current_response = None
-                duration = time.monotonic() - t0
+                        while "\n" in buffer:
+                            sse_line, buffer = buffer.split("\n", 1)
+                            result = self._parse_sse_line(sse_line)
+                            if result is None:
+                                continue
+                            if isinstance(result, str):
+                                # Text or thinking chunk
+                                clean = result.lstrip(_THINKING_MARKER).lstrip(_CONTENT_MARKER)
+                                if not result.startswith(_THINKING_MARKER):
+                                    self._text_response += clean
+                                if on_chunk:
+                                    on_chunk(result)
+                            elif isinstance(result, dict):
+                                if result.get("_stop_reason"):
+                                    stop_reason = result["_stop_reason"]
 
-                if self._stop_requested:
-                    ai_log.event("stream_stopped", "anthropic: user cancelled")
-                    return
+                    # If we broke out for a transient retry, continue the outer loop
+                    if self._current_response is None and stream_error_type == "" and transient_retries > 0:
+                        continue
 
-                # Detect abnormal stream end: no stop_reason + empty response
-                if not stop_reason and not self._text_response.strip() and not self._tool_calls:
-                    error_detail = stream_error_type or "stream ended with no data"
+                    self._current_response = None
+                    duration = time.monotonic() - t0
+
+                    if self._stop_requested:
+                        ai_log.event("stream_stopped", "anthropic: user cancelled")
+                        return
+
+                    # Detect abnormal stream end: no stop_reason + empty response
+                    if not stop_reason and not self._text_response.strip() and not self._tool_calls:
+                        error_detail = stream_error_type or "stream ended with no data"
+                        ai_log.stream_end(
+                            "anthropic",
+                            stop_reason="",
+                            response_len=0,
+                            duration_s=duration,
+                            error_type=error_detail,
+                        )
+                        if on_error:
+                            on_error(f"Connection lost — server stopped responding ({error_detail})")
+                        return
+
                     ai_log.stream_end(
                         "anthropic",
-                        stop_reason="",
-                        response_len=0,
+                        stop_reason=stop_reason or "end_of_stream",
+                        response_len=len(self._text_response),
                         duration_s=duration,
-                        error_type=error_detail,
                     )
+
+                    if stop_reason == "tool_use" and self._tool_calls and on_tool_use:
+                        on_tool_use(self._tool_calls, self._text_response)
+                    elif on_complete:
+                        on_complete(self._text_response)
+                    return  # Success — exit retry loop
+
+                except urllib.error.HTTPError as e:
+                    self._current_response = None
+                    duration = time.monotonic() - t0
+                    error_body = ""
+                    try:
+                        error_body = e.read().decode("utf-8", errors="replace")
+                        error_data = json.loads(error_body)
+                        error_msg = error_data.get("error", {}).get("message", error_body)
+                    except Exception:
+                        error_msg = error_body or str(e)
+
+                    if e.code == 429 and attempt < _MAX_RATE_LIMIT_RETRIES:
+                        # Parse retry-after header, fall back to exponential backoff
+                        retry_after = None
+                        try:
+                            retry_after = int(e.headers.get("retry-after", ""))
+                        except (ValueError, TypeError):
+                            pass
+                        delay = retry_after if retry_after and retry_after > 0 else _RATE_LIMIT_BASE_DELAY_S * (2**attempt)
+                        ai_log.event(
+                            "rate_limit_retry",
+                            f"anthropic: attempt {attempt + 1}/{_MAX_RATE_LIMIT_RETRIES}, waiting {delay}s",
+                        )
+                        if on_chunk:
+                            on_chunk(f"{_CONTENT_MARKER}\n[Rate limited — retrying in {delay}s...]\n")
+                        # Sleep in 1s increments so we can check _stop_requested
+                        for _ in range(delay):
+                            if self._stop_requested:
+                                return
+                            time.sleep(1)
+                        # Reset state for retry
+                        t0 = time.monotonic()
+                        stream_error_type = ""
+                        self._tool_calls = []
+                        self._current_tool_call = None
+                        self._current_tool_input_json = ""
+                        self._text_response = ""
+                        continue  # Retry
+
+                    if e.code == 401:
+                        error_msg = f"Invalid Anthropic API key. {error_msg}"
+                    elif e.code == 429:
+                        error_msg = f"Rate limited. {error_msg}"
+                    elif e.code == 529:
+                        error_msg = f"Anthropic API overloaded. {error_msg}"
+
+                    ai_log.error(error_msg, provider="anthropic", http_status=e.code)
                     if on_error:
-                        on_error(f"Connection lost — server stopped responding ({error_detail})")
-                    return
+                        on_error(error_msg)
+                    return  # Non-retryable error — exit
 
-                ai_log.stream_end(
-                    "anthropic",
-                    stop_reason=stop_reason or "end_of_stream",
-                    response_len=len(self._text_response),
-                    duration_s=duration,
-                )
-
-                if stop_reason == "tool_use" and self._tool_calls and on_tool_use:
-                    on_tool_use(self._tool_calls, self._text_response)
-                elif on_complete:
-                    on_complete(self._text_response)
-
-            except urllib.error.HTTPError as e:
-                self._current_response = None
-                duration = time.monotonic() - t0
-                error_body = ""
-                try:
-                    error_body = e.read().decode("utf-8", errors="replace")
-                    error_data = json.loads(error_body)
-                    error_msg = error_data.get("error", {}).get("message", error_body)
-                except Exception:
-                    error_msg = error_body or str(e)
-
-                if e.code == 401:
-                    error_msg = f"Invalid Anthropic API key. {error_msg}"
-                elif e.code == 429:
-                    error_msg = f"Rate limited. {error_msg}"
-                elif e.code == 529:
-                    error_msg = f"Anthropic API overloaded. {error_msg}"
-
-                ai_log.error(error_msg, provider="anthropic", http_status=e.code)
-                if on_error:
-                    on_error(error_msg)
-            except Exception as e:
-                self._current_response = None
-                ai_log.error(str(e), provider="anthropic")
-                if not self._stop_requested and on_error:
-                    on_error(str(e))
+                except Exception as e:
+                    self._current_response = None
+                    # Retry transient connection errors (SSL, reset, etc.)
+                    if self._is_transient_error(e) and transient_retries < _MAX_TRANSIENT_RETRIES:
+                        transient_retries += 1
+                        delay = _TRANSIENT_BASE_DELAY_S * (2 ** (transient_retries - 1))
+                        ai_log.event(
+                            "transient_retry",
+                            f"anthropic: {e}, attempt {transient_retries}/{_MAX_TRANSIENT_RETRIES}, waiting {delay}s",
+                        )
+                        if on_chunk:
+                            on_chunk(f"{_CONTENT_MARKER}\n[Connection error — retrying in {delay}s...]\n")
+                        for _ in range(delay):
+                            if self._stop_requested:
+                                return
+                            time.sleep(1)
+                        t0 = time.monotonic()
+                        stream_error_type = ""
+                        self._tool_calls = []
+                        self._current_tool_call = None
+                        self._current_tool_input_json = ""
+                        self._text_response = ""
+                        continue  # Retry
+                    ai_log.error(str(e), provider="anthropic")
+                    if not self._stop_requested and on_error:
+                        on_error(str(e))
+                    return  # Non-retryable error — exit
 
         thread = threading.Thread(target=run, daemon=True)
         thread.start()

@@ -32,6 +32,10 @@ SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇",
 _THINKING_MARKER = "\u200b"
 _CONTENT_MARKER = "\u200c"
 _MAX_TOOL_ITERATIONS = 25
+# Hard ceiling on tool-use rounds even in yolo mode.  Configurable via
+# ``ai.max_tool_rounds`` (default 200).  Prevents runaway loops from
+# burning tokens indefinitely.
+_DEFAULT_MAX_TOOL_ROUNDS = 200
 _STALE_REQUEST_TIMEOUT_S = 90  # Cancel request if no data received for this long
 
 
@@ -151,6 +155,10 @@ class AIChatTerminalView(Gtk.Box):
         self._accumulated_thinking = ""  # Raw thinking text for persistence
         self._thinking_throttle_buffer = ""  # Buffered thinking text awaiting flush
         self._thinking_throttle_source: int | None = None  # GLib timer for throttled flush
+        # Thinking blocks: [{text: str, expanded: bool, toggle_line: int}]
+        self._thinking_blocks: list[dict] = []
+        self._is_rerender = False
+        self._rerender_block_index = 0
         self._focus_input_source = None
         self._scroll_generation = 0
         self._pending_restore_scroll_mode = "none"
@@ -1003,6 +1011,8 @@ class AIChatTerminalView(Gtk.Box):
                 self.terminal.select_all()
             elif action == "clear":
                 self.terminal.reset(True, True)
+                self._thinking_blocks.clear()
+                self.terminal.clear_clickable_lines()
 
         parent = self.get_root()
         if parent:
@@ -1155,7 +1165,12 @@ class AIChatTerminalView(Gtk.Box):
             # Batch: suppress height changes during reset+re-render
             self.terminal.begin_batch()
             self.terminal.reset()
+            self.terminal.clear_clickable_lines()
+            # Preserve thinking block expanded/collapsed state during resize
+            self._is_rerender = True
+            self._rerender_block_index = 0
             self._do_restore_messages(scroll_mode="none")
+            self._is_rerender = False
 
             if self._is_processing and self._display_buffer:
                 # Re-process the streaming response at the new width.
@@ -1169,6 +1184,11 @@ class AIChatTerminalView(Gtk.Box):
                 self._thinking_line_start = -1
                 self._accumulated_thinking = ""
                 self._thinking_throttle_buffer = ""
+                # Trim thinking blocks to only those from completed
+                # messages (re-rendered above); the display buffer replay
+                # will re-create blocks for the in-progress response.
+                saved_block_count = getattr(self, "_rerender_block_index", len(self._thinking_blocks))
+                self._thinking_blocks = self._thinking_blocks[:saved_block_count]
                 if self._thinking_throttle_source is not None:
                     GLib.source_remove(self._thinking_throttle_source)
                     self._thinking_throttle_source = None
@@ -1647,11 +1667,16 @@ class AIChatTerminalView(Gtk.Box):
 
             self._tool_iteration_count += len(tool_calls)
             yolo_mode = get_setting("ai.yolo_mode", True)
-            if not yolo_mode and self._tool_iteration_count > _MAX_TOOL_ITERATIONS:
-                self._append_text(
-                    "\n[Tool use limit reached — send 'continue' to resume, or enable yolo_mode in settings for unlimited tool use]\n"
+            max_rounds = get_setting("ai.max_tool_rounds", _DEFAULT_MAX_TOOL_ROUNDS) if yolo_mode else _MAX_TOOL_ITERATIONS
+            if self._tool_iteration_count > max_rounds:
+                limit_label = (
+                    f"[Safety limit of {max_rounds} tool rounds reached — send 'continue' to resume]"
+                    if yolo_mode
+                    else "[Tool use limit reached — send 'continue' to resume, "
+                    "or enable yolo_mode in settings for unlimited tool use]"
                 )
-                msg = {"role": "assistant", "content": self._accumulated_response_text + "\n[Tool use limit reached]"}
+                self._append_text(f"\n{limit_label}\n")
+                msg = {"role": "assistant", "content": self._accumulated_response_text + f"\n{limit_label}"}
                 if self._current_tool_calls:
                     msg["tool_calls_display"] = self._current_tool_calls[:]
                 self.messages.append(msg)
@@ -2039,6 +2064,7 @@ class AIChatTerminalView(Gtk.Box):
         # Apply context truncation to avoid quadratic token growth
         if get_setting("ai.context_truncation", True):
             from ai.context_truncation import truncate_conversation
+
             fmt = "anthropic" if self._current_provider == self.PROVIDER_ANTHROPIC_API else "openai"
             api_messages = truncate_conversation(api_messages, format=fmt)
 
@@ -2587,12 +2613,10 @@ class AIChatTerminalView(Gtk.Box):
         return segments
 
     def _feed_thinking_text(self, text: str):
-        """Display thinking text in dimmed italic style, streaming live.
+        """Accumulate thinking text silently (not rendered during streaming).
 
-        Batches all ANSI output into a single ``terminal.feed()`` call to
-        avoid repeated ``_eagerly_update_height`` / ``_schedule_redraw``
-        overhead that previously caused UI freezes during long thinking
-        blocks.
+        The thinking content is stored and displayed as a collapsible toggle
+        line when the thinking block ends (see ``_collapse_thinking_block``).
         """
         if self._spinner_source:
             self._stop_spinner()
@@ -2605,118 +2629,118 @@ class AIChatTerminalView(Gtk.Box):
             GLib.source_remove(self._thinking_defer_source)
             self._thinking_defer_source = None
 
-        # Build all output into a list, then join and feed once at the end.
-        parts: list[str] = []
-
         if not self._in_thinking:
-            # Start thinking block — show header
             self._in_thinking = True
             self._thinking_line_start = self.terminal._buffer.get_line_count()
             self.terminal.begin_block("thinking")
-            theme = get_theme()
-            dim_color = theme.term_cyan or theme.accent_color
-            ansi_fg = _hex_to_ansi_fg(dim_color)
-            # Blank line separator when thinking follows an action
-            prefix = "\n" if self._last_content_was_action else ""
-            self._last_content_was_action = False
-            parts.append(f"\r{prefix}{ansi_fg}\033[2m\033[3m{Icons.THOUGHT_BUBBLE} Thinking...\033[0m\n")
 
-        # Render thinking text as dimmed italic, word-wrapped to terminal width
+    def _render_thinking_toggle(self, thinking_text: str, expanded: bool):
+        """Render a clickable thinking toggle line, optionally with expanded content.
+
+        Returns the buffer line index of the toggle line.
+        """
         theme = get_theme()
         dim_color = theme.term_cyan or theme.accent_color
         ansi_fg = _hex_to_ansi_fg(dim_color)
+        prefix = "\n" if self._last_content_was_action else ""
+        arrow = "▼" if expanded else "▶"
+        word_count = len(thinking_text.split())
+        if word_count > 0:
+            label = f"{arrow} {Icons.THOUGHT_BUBBLE} Thought \u00b7 {word_count} words"
+        else:
+            label = f"{arrow} {Icons.THOUGHT_BUBBLE} Thought"
+        # The label will be written on the current line (\r goes to col 0).
+        # If prefix contains \n, the label goes on the NEXT line.
+        buf_lines = self.terminal._buffer.get_line_count()
+        toggle_line = buf_lines if prefix else max(buf_lines - 1, 0)
+        parts = [f"\r{prefix}{ansi_fg}\033[2m{label}\033[0m\n"]
 
-        # "  " prefix takes 2 columns
-        cols = self.terminal.get_column_count() if hasattr(self, "terminal") else 80
-        wrap_width = max(cols - 2, 20)
+        if expanded:
+            cols = self.terminal.get_column_count() if hasattr(self, "terminal") else 80
+            wrap_width = max(cols - 2, 20)
+            for line in thinking_text.splitlines():
+                if not line.strip():
+                    parts.append(f"\r{ansi_fg}\033[2m\033[3m  \033[0m\033[K\n")
+                    continue
+                wrapped = textwrap.wrap(line, width=wrap_width) or [""]
+                for wl in wrapped:
+                    parts.append(f"\r{ansi_fg}\033[2m\033[3m  {wl}\033[0m\033[K\n")
 
-        blank_line = f"\r{ansi_fg}\033[2m\033[3m  \033[0m\033[K\n"
-
-        # Preserve partial lines so token-sized chunks don't become one
-        # word per line in the thinking block.
-        streamed = self._thinking_partial_line + text
-        lines = streamed.split("\n")
-        for line in lines[:-1]:
-            if not line.strip():
-                # Buffer trailing blank lines — only render when more
-                # non-blank thinking text arrives.  Discarded on collapse
-                # so they never produce visual gaps before content.
-                self._thinking_pending_blanks += 1
-                continue
-            # Flush any pending blank lines (preserves internal paragraphs)
-            for _ in range(self._thinking_pending_blanks):
-                parts.append(blank_line)
-            self._thinking_pending_blanks = 0
-            wrapped = textwrap.wrap(line, width=wrap_width) or [""]
-            for wl in wrapped:
-                parts.append(f"\r{ansi_fg}\033[2m\033[3m  {wl}\033[0m\033[K\n")
-
-        self._thinking_partial_line = lines[-1]
-        if self._thinking_partial_line:
-            # Non-empty partial — flush pending blanks first
-            for _ in range(self._thinking_pending_blanks):
-                parts.append(blank_line)
-            self._thinking_pending_blanks = 0
-            # Show partial line (will be overwritten by next chunk via \r)
-            visible = self._thinking_partial_line[:wrap_width]
-            parts.append(f"\r{ansi_fg}\033[2m\033[3m  {visible}\033[0m\033[K")
-
-        # Single feed call — triggers _eagerly_update_height and
-        # _schedule_redraw only once instead of once per line.
-        if parts:
-            self.terminal.feed("".join(parts))
-        self._maybe_auto_scroll()
+        self.terminal.feed("".join(parts))
+        return toggle_line
 
     def _collapse_thinking_block(self):
-        """Finalize thinking block with a summary separator.
-
-        Keeps the thinking text visible (dimmed/italic) and appends a
-        compact summary line so the user can always scroll up and review
-        what the AI was thinking.
+        """Finalize thinking block: store the accumulated thinking text
+        and render a collapsed toggle line that can be clicked to reveal it.
         """
         if not self._in_thinking or self._thinking_line_start < 0:
             self._in_thinking = False
             return
 
         self._in_thinking = False
-        # Discard trailing blank lines buffered during thinking
         self._thinking_pending_blanks = 0
-        # Flush any remaining partial thinking line, wrapped to terminal width
-        if self._thinking_partial_line:
-            theme = get_theme()
-            dim_color = theme.term_cyan or theme.accent_color
-            ansi_fg = _hex_to_ansi_fg(dim_color)
-            cols = self.terminal.get_column_count() if hasattr(self, "terminal") else 80
-            wrap_width = max(cols - 2, 20)
-            wrapped = textwrap.wrap(self._thinking_partial_line, width=wrap_width) or [self._thinking_partial_line]
-            # Batch into a single feed call
-            collapse_parts = [f"\r{ansi_fg}\033[2m\033[3m  {wl}\033[0m\033[K\n" for wl in wrapped]
-            self.terminal.feed("".join(collapse_parts))
         self._thinking_partial_line = ""
+        self._thinking_line_start = -1
 
-        buf = self.terminal._buffer
-        total_lines = buf.get_line_count()
-        thinking_lines = total_lines - self._thinking_line_start
-
-        if thinking_lines <= 0:
-            self._thinking_line_start = -1
+        thinking_text = self._accumulated_thinking.strip()
+        if not thinking_text:
             return
 
-        self._thinking_line_start = -1
-        # The thinking text already ends with \n; setting this flag makes
-        # _render_content_text prefix the next action with a single \n,
-        # giving exactly 1 blank line between thinking and action.
+        # Store this thinking block
+        block_index = len(self._thinking_blocks)
+        block = {"text": thinking_text, "expanded": False, "toggle_line": -1}
+        self._thinking_blocks.append(block)
+
+        # Render collapsed toggle line
+        toggle_line = self._render_thinking_toggle(thinking_text, expanded=False)
+        block["toggle_line"] = toggle_line
+
+        # Register clickable line on the canvas
+        idx = block_index  # capture for closure
+        self.terminal.register_clickable_line(toggle_line, lambda: self._toggle_thinking(idx))
+
         self._last_content_was_action = True
-        # Thinking text bypasses the markdown renderer (fed directly to the
-        # terminal), so the renderer's _seen_content flag is still False.
-        # Mark it True so the renderer doesn't swallow the blank-line
-        # separator (\n) that precedes the next action block.
         self._md_renderer._seen_content = True
 
-        # Schedule redraw
         self.terminal._needs_height_update = True
         self.terminal._eagerly_update_height()
         self.terminal._schedule_redraw()
+
+    def _toggle_thinking(self, block_index: int):
+        """Toggle a thinking block between expanded and collapsed, then re-render."""
+        if block_index < 0 or block_index >= len(self._thinking_blocks):
+            return
+        # Don't toggle during active streaming — would lose in-progress response
+        if self._is_processing:
+            return
+        block = self._thinking_blocks[block_index]
+        block["expanded"] = not block["expanded"]
+        self._re_render_all_messages()
+
+    def _re_render_all_messages(self):
+        """Clear the terminal and re-render all messages from saved history.
+
+        Used when toggling thinking blocks, since the buffer doesn't support
+        line insertion/removal.  Preserves expanded/collapsed state of
+        thinking blocks.
+        """
+        # Save scroll position before clearing
+        vadj = self.terminal._vadjustment
+        scroll_state = None
+        if vadj:
+            scroll_state = {
+                "value": vadj.get_value(),
+                "upper": vadj.get_upper(),
+                "page": vadj.get_page_size(),
+            }
+        self.terminal.reset()
+        self.terminal.clear_clickable_lines()
+        # _thinking_blocks keeps expanded states; _do_restore_messages
+        # will re-use them via _is_rerender flag.
+        self._is_rerender = True
+        self._rerender_block_index = 0
+        self._do_restore_messages(scroll_mode="preserve", scroll_state=scroll_state)
+        self._is_rerender = False
 
     def _flush_thinking_deferred(self) -> bool:
         """Collapse thinking and render buffered content.
@@ -2913,6 +2937,11 @@ class AIChatTerminalView(Gtk.Box):
         self._restore_in_progress = False
         self._pending_restore_scroll_mode = "none"
 
+        # Clear thinking blocks on initial restore (not re-render toggle)
+        if not getattr(self, "_is_rerender", False):
+            self._thinking_blocks.clear()
+            self.terminal.clear_clickable_lines()
+
         # Batch mode: suppress per-feed height updates and wrap-map rebuilds.
         # Without this, each feed() call triggers _eagerly_update_height()
         # which rebuilds the O(N) wrap map over ALL lines — causing O(N²)
@@ -2949,15 +2978,36 @@ class AIChatTerminalView(Gtk.Box):
                     for tc in tool_calls_display:
                         display = self._format_tool_display(tc.get("name", ""), tc.get("input", {}))
                         self._append_text(f"\n\n{ansi_action}{display}\033[0m\n")
-                # Render thinking block if present
+                # Render thinking toggle if present
                 thinking = msg.get("thinking", "")
                 if thinking:
-                    self._in_thinking = False
-                    self._thinking_partial_line = ""
-                    self._thinking_pending_blanks = 0
-                    self._thinking_line_start = -1
-                    self._feed_thinking_text(thinking)
-                    self._collapse_thinking_block()
+                    self._last_content_was_action = bool(tool_calls_display)
+                    if getattr(self, "_is_rerender", False):
+                        # Re-render: use existing block with its expanded state
+                        bi = getattr(self, "_rerender_block_index", 0)
+                        if bi < len(self._thinking_blocks):
+                            block = self._thinking_blocks[bi]
+                            block["text"] = thinking.strip()
+                            toggle_line = self._render_thinking_toggle(block["text"], block["expanded"])
+                            block["toggle_line"] = toggle_line
+                            idx = bi
+                            self.terminal.register_clickable_line(toggle_line, lambda i=idx: self._toggle_thinking(i))
+                            self._rerender_block_index = bi + 1
+                    else:
+                        # Initial restore: create new block
+                        bi = len(self._thinking_blocks)
+                        block = {
+                            "text": thinking.strip(),
+                            "expanded": False,
+                            "toggle_line": -1,
+                        }
+                        self._thinking_blocks.append(block)
+                        toggle_line = self._render_thinking_toggle(block["text"], expanded=False)
+                        block["toggle_line"] = toggle_line
+                        idx = bi
+                        self.terminal.register_clickable_line(toggle_line, lambda i=idx: self._toggle_thinking(i))
+                    self._last_content_was_action = True
+                    self._md_renderer._seen_content = True
                 # Render stored markdown through the renderer for consistent display
                 self._update_renderer_colors()
                 content = self._normalize_action_spacing(content)

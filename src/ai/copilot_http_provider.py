@@ -445,7 +445,12 @@ class CopilotHTTPProvider:
                     if get_setting("ai.context_truncation", True):
                         from ai.context_truncation import truncate_conversation
 
-                        conversation = truncate_conversation(self._conversation, format="openai")
+                        max_ctx = get_setting("ai.max_context_chars", 500_000)
+                        conversation = truncate_conversation(
+                            self._conversation,
+                            format="openai",
+                            max_total_chars=max_ctx,
+                        )
                 except Exception:
                     pass  # Truncation failure must never block the request
 

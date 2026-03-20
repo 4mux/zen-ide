@@ -16,26 +16,55 @@ the messages list.  The strategy:
 4. For messages in the "middle" zone: truncate tool-result content
    to a short summary so the model still sees the call/result
    structure but doesn't pay for kilobytes of old file listings.
+5. If the serialised conversation exceeds ``max_total_chars``,
+   progressively drop the oldest middle messages until it fits.
 
-The setting ``ai.context_truncation`` (default True) controls this.
+Settings:
+- ``ai.context_truncation`` (default True) — enables truncation.
+- ``ai.max_context_chars`` (default 500000) — hard cap on total
+  serialised conversation size in characters (~125K tokens).
 """
 
 from __future__ import annotations
 
 # How many messages at the tail of the conversation to keep in full.
 # This must be large enough that the model sees the most recent tool
-# call / result pairs.  12 ≈ 6 tool rounds.
-_KEEP_RECENT = 12
+# call / result pairs.  8 ≈ 4 tool rounds.
+_KEEP_RECENT = 8
 
 # Conversation length threshold below which we skip truncation entirely.
-# No point truncating a short conversation.
-_MIN_MESSAGES_TO_TRUNCATE = 20
+# With a 30k tokens/min rate limit, even short conversations with large
+# tool results can blow through the budget by round 5-6.
+_MIN_MESSAGES_TO_TRUNCATE = 8
 
 # Maximum characters to keep in a truncated tool result content.
 _TRUNCATED_CONTENT_MAX_CHARS = 200
 
+# Default hard cap on total serialised conversation size (chars).
+# ~500K chars ≈ ~125K tokens — a safe ceiling for most models.
+_DEFAULT_MAX_TOTAL_CHARS = 500_000
+
 # Marker appended to truncated content so the model knows data was omitted.
 _TRUNCATION_SUFFIX = "\n[...truncated for brevity]"
+
+
+def _estimate_message_chars(msg: dict) -> int:
+    """Rough character count for a single message dict."""
+    content = msg.get("content", "")
+    if isinstance(content, str):
+        return len(content)
+    if isinstance(content, list):
+        total = 0
+        for block in content:
+            if isinstance(block, dict):
+                total += len(str(block.get("content", "")))
+                total += len(str(block.get("text", "")))
+                total += len(str(block.get("thinking", "")))
+                total += len(str(block.get("input", "")))
+            elif isinstance(block, str):
+                total += len(block)
+        return total
+    return len(str(content))
 
 
 def truncate_conversation(
@@ -44,6 +73,7 @@ def truncate_conversation(
     keep_recent: int = _KEEP_RECENT,
     min_messages: int = _MIN_MESSAGES_TO_TRUNCATE,
     max_content_chars: int = _TRUNCATED_CONTENT_MAX_CHARS,
+    max_total_chars: int = _DEFAULT_MAX_TOTAL_CHARS,
     format: str = "openai",  # "openai" or "anthropic"
 ) -> list[dict]:
     """Return a (possibly) truncated copy of *messages*.
@@ -54,11 +84,17 @@ def truncate_conversation(
     the API) while dramatically reducing the token count of long
     agentic sessions.
 
+    If the conversation still exceeds *max_total_chars* after content
+    truncation, the oldest messages in the middle zone are dropped
+    entirely (replaced with a single summary placeholder) until the
+    conversation fits.
+
     Args:
         messages: The full conversation messages list.
         keep_recent: Number of messages at the end to keep verbatim.
         min_messages: Don't truncate if the conversation is shorter.
         max_content_chars: Max chars to keep in a truncated tool result.
+        max_total_chars: Hard cap on total serialised conversation size.
         format: "openai" (Copilot) or "anthropic" — determines how tool
                 results are identified.
 
@@ -68,7 +104,10 @@ def truncate_conversation(
     """
     n = len(messages)
     if n < min_messages:
-        return messages  # Short conversation, nothing to do
+        # Even short conversations should respect the hard size cap.
+        if max_total_chars > 0 and _total_chars(messages) > max_total_chars:
+            return _enforce_size_cap(messages, max_total_chars, keep_recent, format)
+        return messages
 
     # Determine the protected ranges:
     # - Index 0 is always the system prompt (keep)
@@ -79,8 +118,10 @@ def truncate_conversation(
     protected_head = 2  # system + first user message
     protected_tail_start = max(protected_head, n - keep_recent)
 
-    # If the truncation zone is empty, nothing to do
+    # If the truncation zone is empty, nothing to do (except size cap)
     if protected_tail_start <= protected_head:
+        if max_total_chars > 0 and _total_chars(messages) > max_total_chars:
+            return _enforce_size_cap(messages, max_total_chars, keep_recent, format)
         return messages
 
     result: list[dict] = []
@@ -93,7 +134,51 @@ def truncate_conversation(
             truncated = _maybe_truncate_message(msg, max_content_chars, format)
             result.append(truncated)
 
+    # Enforce hard size cap — drop oldest middle messages if still too large
+    if max_total_chars > 0 and _total_chars(result) > max_total_chars:
+        result = _enforce_size_cap(result, max_total_chars, keep_recent, format)
+
     return result
+
+
+def _total_chars(messages: list[dict]) -> int:
+    """Estimate total serialised character count of a messages list."""
+    return sum(_estimate_message_chars(m) for m in messages)
+
+
+def _enforce_size_cap(
+    messages: list[dict],
+    max_total_chars: int,
+    keep_recent: int,
+    format: str,
+) -> list[dict]:
+    """Drop oldest middle messages until total size fits under the cap.
+
+    Preserves the first 2 messages (system + first user) and the last
+    *keep_recent* messages.  Inserts a placeholder so the model knows
+    messages were omitted.
+    """
+    n = len(messages)
+    protected_head = min(2, n)
+    protected_tail_start = max(protected_head, n - keep_recent)
+
+    head = messages[:protected_head]
+    tail = messages[protected_tail_start:]
+    middle = messages[protected_head:protected_tail_start]
+
+    # Drop from the oldest end of the middle until we fit
+    placeholder = {
+        "role": "user" if format == "anthropic" else "system",
+        "content": "[Earlier conversation history was truncated to stay within context limits]",
+    }
+
+    while middle and _total_chars(head + [placeholder] + middle + tail) > max_total_chars:
+        middle.pop(0)
+
+    if len(middle) < (protected_tail_start - protected_head):
+        # We dropped something — insert placeholder
+        return head + [placeholder] + middle + tail
+    return head + middle + tail
 
 
 def _maybe_truncate_message(

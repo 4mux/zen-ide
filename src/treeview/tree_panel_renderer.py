@@ -65,16 +65,21 @@ class TreePanelRendererMixin:
         pango_ctx = self.drawing_area.get_pango_context()
         layout = Pango.Layout.new(pango_ctx)
 
-        # Cache text/icon heights — constant across rows, only changes on font change
+        # Cache text/icon metrics — constant across rows, only changes on font change
         if self._cached_text_height is None:
             layout.set_font_description(self.text_font_desc)
             layout.set_text("Ay", -1)
-            _, logical_rect = layout.get_pixel_extents()
-            self._cached_text_height = logical_rect.height
+            text_ink, text_logical = layout.get_pixel_extents()
+            self._cached_text_height = text_logical.height
+            # Ink center relative to layout origin (where visible text pixels center)
+            self._cached_text_ink_center = text_ink.y + text_ink.height / 2
+
             layout.set_font_description(self.icon_font_desc)
-            layout.set_text("Ay", -1)
-            _, icon_logical = layout.get_pixel_extents()
+            layout.set_text("\uf07b", -1)  # measure with actual icon glyph
+            icon_ink, icon_logical = layout.get_pixel_extents()
             self._cached_icon_height = icon_logical.height
+            # Ink center relative to layout origin (where visible icon pixels center)
+            self._cached_icon_ink_center = icon_ink.y + icon_ink.height / 2
 
         # Draw visible items
         for i in range(max(0, first_visible), min(len(self.items), last_visible)):
@@ -108,8 +113,11 @@ class TreePanelRendererMixin:
         text_height = self._cached_text_height
         text_y = y + (self.row_height - text_height) / 2
 
-        icon_height = self._cached_icon_height
-        icon_y = y + (self.row_height - icon_height) / 2
+        # Align icon so its ink (visible pixels) center matches the text ink center.
+        # On Linux, Nerd Font icon glyphs sit at different positions within their
+        # logical rect than text glyphs, so logical-rect centering causes misalignment.
+        text_ink_center_y = text_y + self._cached_text_ink_center
+        icon_y = text_ink_center_y - self._cached_icon_ink_center
 
         # Draw indent guides
         if item.depth > 0:

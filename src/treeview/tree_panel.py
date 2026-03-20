@@ -261,8 +261,11 @@ class CustomTreePanel(
         # Calculate row height from actual font metrics + margins
         self._calculate_row_height()
 
-        # Icon column width (fixed for alignment, slightly tight to keep icon near text)
-        self._icon_column_width = int(size * 1.6)
+        # Icon column width (fixed for alignment)
+        import sys
+
+        platform_pad = 5 if sys.platform == "linux" else 0
+        self._icon_column_width = int(size * 1.6) + platform_pad
 
     def _calculate_row_height(self):
         """Calculate row height from font size without Pango measurement.

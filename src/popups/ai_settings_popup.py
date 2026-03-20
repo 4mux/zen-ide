@@ -574,6 +574,20 @@ class AISettingsPopup(NvimPopup):
         """Override to prevent close when dropdown popover takes focus."""
         GLib.timeout_add(100, self._check_focus_and_close)
 
+    def _check_active_and_close(self):
+        """Override: don't close while a child status dialog or dropdown popover is open."""
+        if self._closing:
+            return False
+        if self.get_property("is-active"):
+            return False
+        if getattr(self, "_status_dialog_open", False):
+            return False
+        for dropdown in (self._provider_dropdown, self._model_dropdown):
+            popover = self._find_popover(dropdown)
+            if popover is not None and popover.get_visible():
+                return False
+        return super()._check_active_and_close()
+
     def _dismiss_click_outside(self):
         """Override: ignore clicks that land on the child status popup."""
         if self._closing:

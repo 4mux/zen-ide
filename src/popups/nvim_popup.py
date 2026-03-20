@@ -197,7 +197,10 @@ class NvimPopup(Gtk.Window):
         super().__init__()
         self.add_css_class("nvim-popup-window")
         self.set_transient_for(parent)
-        self.set_modal(modal)
+        # On Linux, avoid GTK's modal system — it blocks parent input events
+        # entirely, preventing click-outside-to-close detection.  We handle
+        # dismiss-on-click-outside ourselves via a parent gesture instead.
+        self.set_modal(modal and _IS_MACOS)
         self.set_decorated(False)
         self.set_resizable(False)
 
@@ -828,6 +831,12 @@ class NvimPopup(Gtk.Window):
             focus_controller = Gtk.EventControllerFocus()
             focus_controller.connect("leave", self._on_focus_leave)
             self.add_controller(focus_controller)
+            if not _IS_MACOS:
+                # On Linux, GTK4 focus-leave can be unreliable for detecting
+                # clicks outside the popup (especially on Wayland).  Monitor
+                # the window's is-active property as a fallback — it reliably
+                # fires when the user clicks on another window or the desktop.
+                self.connect("notify::is-active", self._on_active_changed)
 
     def _on_focus_leave(self, controller):
         """Handle focus leaving the popup window - close it."""
@@ -835,6 +844,28 @@ class NvimPopup(Gtk.Window):
             return
         self._result = None
         self.close()
+
+    def _on_active_changed(self, window, pspec):
+        """Handle window losing active state (Linux fallback for click-outside).
+
+        Use a short delay before closing — dropdown popovers and child dialogs
+        temporarily steal the active state and return it immediately.
+        """
+        if self._closing or self.get_property("is-active"):
+            return
+        from gi.repository import GLib
+
+        GLib.timeout_add(150, self._check_active_and_close)
+
+    def _check_active_and_close(self):
+        """Close if the popup is still inactive after the delay."""
+        if self._closing:
+            return False
+        if self.get_property("is-active"):
+            return False
+        self._result = None
+        self.close()
+        return False
 
     def _install_macos_click_monitor(self):
         """Install an NSEvent local monitor to detect clicks outside the popup on macOS."""

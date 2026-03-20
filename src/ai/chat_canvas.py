@@ -107,6 +107,9 @@ class ChatCanvas(Gtk.DrawingArea):
         # Block tracking for inspector: list of (start_line, block_type, meta)
         self._block_tags: list[tuple[int, str, dict]] = []
 
+        # Clickable lines: maps buffer line index → callback
+        self._clickable_lines: dict[int, callable] = {}
+
         # Resize scroll anchoring: during continuous resize, we bypass
         # vadjustment entirely to avoid GTK's layout-driven clamping.
         # A persistent scroll anchor stores which buffer line should be
@@ -171,6 +174,7 @@ class ChatCanvas(Gtk.DrawingArea):
         self._buffer.clear()
         self._layout_cache.clear()
         self._block_tags.clear()
+        self._clickable_lines.clear()
         self._clear_selection()
         self._wrap_map.clear()
         self._wrap_offsets.clear()
@@ -238,6 +242,15 @@ class ChatCanvas(Gtk.DrawingArea):
         else:
             end = self._buffer.get_line_count() - 1
         return (btype, start, end, meta)
+
+    # -- Clickable lines (thinking toggle, etc.) -------------------------
+
+    def register_clickable_line(self, line: int, callback):
+        """Register a buffer line as clickable. Callback receives no args."""
+        self._clickable_lines[line] = callback
+
+    def clear_clickable_lines(self):
+        self._clickable_lines.clear()
 
     def line_at_y(self, y: float) -> int:
         """Convert a Y pixel coordinate (widget-local) to a buffer line index."""
@@ -1115,10 +1128,22 @@ class ChatCanvas(Gtk.DrawingArea):
         drag.connect("drag-end", self._on_drag_end)
         self.add_controller(drag)
 
+        # Motion controller for hand cursor on clickable lines
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", self._on_motion)
+        motion.connect("leave", self._on_motion_leave)
+        self.add_controller(motion)
+        self._hover_is_clickable = False
+
     def _on_drag_begin(self, gesture, start_x, start_y):
         """Start text selection."""
         if self._multi_click_active:
             return
+        # Don't start selection on clickable lines (thinking toggles etc.)
+        if self._measured and self._buffer.get_line_count() > 0:
+            line, _col = self._pixel_to_char_index(start_x, start_y)
+            if line in self._clickable_lines:
+                return
         pos = self._pixel_to_pos(start_x, start_y)
         self._sel_anchor = pos
         self._sel_cursor = pos
@@ -1152,11 +1177,36 @@ class ChatCanvas(Gtk.DrawingArea):
             self._sel_cursor = pos
             self._has_selection = self._sel_anchor != self._sel_cursor
 
+    def _on_motion(self, controller, x, y):
+        """Update cursor when hovering over clickable lines."""
+        if not self._measured or self._buffer.get_line_count() == 0:
+            if self._hover_is_clickable:
+                self._hover_is_clickable = False
+                self.set_cursor(None)
+            return
+        line, _col = self._pixel_to_char_index(x, y)
+        is_clickable = line in self._clickable_lines
+        if is_clickable != self._hover_is_clickable:
+            self._hover_is_clickable = is_clickable
+            if is_clickable:
+                self.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+            else:
+                self.set_cursor(None)
+
+    def _on_motion_leave(self, controller):
+        if self._hover_is_clickable:
+            self._hover_is_clickable = False
+            self.set_cursor(None)
+
     def _on_click_pressed(self, gesture, n_press, x, y):
-        """Handle double-click (word) and triple-click (line) selection."""
+        """Handle clicks: single-click on clickable lines, double/triple for selection."""
         if not self._measured or self._buffer.get_line_count() == 0:
             return
         line, col = self._pixel_to_char_index(x, y)
+        # Single click on a clickable line (thinking toggle, etc.)
+        if n_press == 1 and line in self._clickable_lines:
+            self._clickable_lines[line]()
+            return
         if n_press == 2:
             start, end = self._word_bounds_at(line, col)
             self._sel_anchor = (line, start)
