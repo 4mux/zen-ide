@@ -126,6 +126,8 @@ class AIChatTerminalView(Gtk.Box):
         self._http_provider = None  # Active HTTP provider instance (AnthropicHTTPProvider or CopilotHTTPProvider)
         self._http_streaming = False  # True while an HTTP stream is active
         self._tool_iteration_count = 0  # Track tool use iterations per message
+        self._api_request_count = 0  # Track API requests for current user message
+        self._auto_continue_count = 0  # Track consecutive auto-continues to prevent infinite loops
         self._current_tool_calls: list[dict] = []  # Accumulated tool calls for current assistant turn
 
         # Track terminal column count for resize re-rendering
@@ -674,7 +676,9 @@ class AIChatTerminalView(Gtk.Box):
             self._stop_scroll_indicator_spinner()
         else:
             frame = SPINNER_FRAMES[self._scroll_indicator_spinner_frame % len(SPINNER_FRAMES)]
-            indicator.set_label(f"{frame}  Thinking")
+            req_count = getattr(self, "_api_request_count", 0)
+            suffix = f" · {req_count} reqs" if req_count > 1 else ""
+            indicator.set_label(f"{frame}  Thinking{suffix}")
             indicator.set_visible(True)
             css_cls = "following"
             self._start_scroll_indicator_spinner()
@@ -733,7 +737,9 @@ class AIChatTerminalView(Gtk.Box):
         """Advance the scroll indicator spinner frame."""
         self._scroll_indicator_spinner_frame += 1
         frame = SPINNER_FRAMES[self._scroll_indicator_spinner_frame % len(SPINNER_FRAMES)]
-        self._scroll_indicator.set_label(f"{frame}  Thinking")
+        req_count = getattr(self, "_api_request_count", 0)
+        suffix = f" · {req_count} reqs" if req_count > 1 else ""
+        self._scroll_indicator.set_label(f"{frame}  Thinking{suffix}")
         return True  # Keep running
 
     def _engage_auto_scroll(self):
@@ -1225,7 +1231,9 @@ class AIChatTerminalView(Gtk.Box):
                 theme = get_theme()
                 dim_color = theme.term_cyan or theme.accent_color
                 ansi_fg = _hex_to_ansi_fg(dim_color)
-                self.terminal.feed(f"\r{ansi_fg}Thinking... {frame}\033[0m")
+                req_count = getattr(self, "_api_request_count", 0)
+                req_suffix = f" · {req_count} reqs" if req_count > 1 else ""
+                self.terminal.feed(f"\r{ansi_fg}Thinking...{req_suffix} {frame}\033[0m")
 
             # Restore scroll position using line-based anchor.
             # end_batch() already rebuilt the wrap map and set the
@@ -1382,6 +1390,9 @@ class AIChatTerminalView(Gtk.Box):
             self._show_api_key_setup_with_callback(self._current_provider)
             return
 
+        # Prevent duplicate sends immediately (before any async work)
+        self._is_processing = True
+
         # Clear input
         buffer.set_text("")
 
@@ -1483,6 +1494,8 @@ class AIChatTerminalView(Gtk.Box):
         self._thinking_throttle_buffer = ""
         self._assistant_block_started = False
         self._tool_iteration_count = 0
+        self._api_request_count = 0
+        self._auto_continue_count = 0
         self._current_tool_calls = []
         self._accumulated_response_text = ""  # Accumulate text across tool-use turns
         if self._thinking_defer_source is not None:
@@ -1565,6 +1578,7 @@ class AIChatTerminalView(Gtk.Box):
         # Use higher max_tokens in yolo mode to avoid premature truncation
         max_tokens = 32768 if yolo_mode else 16384
 
+        self._api_request_count += 1
         self._http_provider.send_message_stream(
             messages=api_messages,
             model=self._current_model,
@@ -1743,6 +1757,7 @@ class AIChatTerminalView(Gtk.Box):
             self._display_buffer.append(("reset",))
 
             # Continue the conversation with tool results
+            self._api_request_count += 1
             self._http_provider.continue_with_tool_results(
                 tool_results=tool_results,
                 on_chunk=self._make_on_chunk(),
@@ -1918,6 +1933,7 @@ class AIChatTerminalView(Gtk.Box):
                 text = accumulated + text
 
             # --- Yolo mode: auto-continue if the model hallucinated a tool limit ---
+            _MAX_AUTO_CONTINUES = 3
             if text and get_setting("ai.yolo_mode", True) and self._tool_limit_patterns_in(text):
                 # Strip the hallucinated limit message from the stored response
                 cleaned = self._TOOL_LIMIT_PATTERNS.sub("", text).rstrip()
@@ -1930,9 +1946,14 @@ class AIChatTerminalView(Gtk.Box):
                     self.messages.append(msg)
                     self._save_chat_messages()
 
-                # Auto-continue: send a follow-up to keep going
-                self._auto_continue()
-                return
+                # Cap consecutive auto-continues to prevent infinite loops
+                if self._auto_continue_count >= _MAX_AUTO_CONTINUES:
+                    self._auto_continue_count = 0
+                    # Fall through to normal completion instead of looping
+                else:
+                    self._auto_continue_count += 1
+                    self._auto_continue()
+                    return
 
             if text:
                 msg = {"role": "assistant", "content": text}
@@ -2015,6 +2036,12 @@ class AIChatTerminalView(Gtk.Box):
             if role in ("user", "assistant") and content:
                 api_messages.append({"role": role, "content": content})
 
+        # Apply context truncation to avoid quadratic token growth
+        if get_setting("ai.context_truncation", True):
+            from ai.context_truncation import truncate_conversation
+            fmt = "anthropic" if self._current_provider == self.PROVIDER_ANTHROPIC_API else "openai"
+            api_messages = truncate_conversation(api_messages, format=fmt)
+
         # Recreate provider instance
         if self._current_provider == self.PROVIDER_ANTHROPIC_API:
             self._http_provider = AnthropicHTTPProvider()
@@ -2053,6 +2080,7 @@ class AIChatTerminalView(Gtk.Box):
         )
         system_prompt = "\n".join(system_parts)
 
+        self._api_request_count += 1
         self._http_provider.send_message_stream(
             messages=api_messages,
             model=self._current_model,
@@ -2393,13 +2421,15 @@ class AIChatTerminalView(Gtk.Box):
         # Show initial spinner frame
         frame = SPINNER_FRAMES[0]
         if hasattr(self, "terminal"):
-            self.terminal.feed(f"\r{ansi_fg}Thinking... {frame}\033[0m")
+            req_count = getattr(self, "_api_request_count", 0)
+            req_suffix = f" · {req_count} reqs" if req_count > 1 else ""
+            self.terminal.feed(f"\r{ansi_fg}Thinking...{req_suffix} {frame}\033[0m")
         self._spinner_source = GLib.timeout_add(80, self._update_spinner)
         # Start stale request watchdog — checks every 10s if the stream has stalled
         self._start_stale_watchdog()
 
     def _update_spinner(self):
-        """Update the spinner animation frame with elapsed time."""
+        """Update the spinner animation frame with elapsed time and request count."""
         # Skip update if terminal has selection (to avoid clearing it)
         if hasattr(self, "terminal") and self.terminal.get_has_selection():
             return True  # Continue timer but skip this update
@@ -2408,12 +2438,16 @@ class AIChatTerminalView(Gtk.Box):
         theme = get_theme()
         dim_color = theme.term_cyan or theme.accent_color
         ansi_fg = _hex_to_ansi_fg(dim_color)
-        elapsed = ""
+        status_parts = []
         if self._spinner_start_time is not None:
             secs = time.monotonic() - self._spinner_start_time
-            elapsed = f" ({secs:.1f}s)"
+            status_parts.append(f"{secs:.1f}s")
+        req_count = getattr(self, "_api_request_count", 0)
+        if req_count > 1:
+            status_parts.append(f"{req_count} reqs")
+        status = f" ({' · '.join(status_parts)})" if status_parts else ""
         if hasattr(self, "terminal"):
-            self.terminal.feed(f"\r{ansi_fg}Thinking...{elapsed} {frame}\033[0m\033[K")
+            self.terminal.feed(f"\r{ansi_fg}Thinking...{status} {frame}\033[0m\033[K")
         return True  # Keep running
 
     def _stop_spinner(self):

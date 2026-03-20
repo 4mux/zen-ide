@@ -434,10 +434,25 @@ class CopilotHTTPProvider:
                         on_error(f"Failed to get Copilot session token: {detail}")
                     return
 
+                # Apply context truncation to reduce token cost in long
+                # agentic sessions.  Old tool results in the middle of the
+                # conversation are shortened while the recent context and
+                # the original user message are kept intact.
+                conversation = self._conversation
+                try:
+                    from shared.settings.settings_manager import get_setting
+
+                    if get_setting("ai.context_truncation", True):
+                        from ai.context_truncation import truncate_conversation
+
+                        conversation = truncate_conversation(self._conversation, format="openai")
+                except Exception:
+                    pass  # Truncation failure must never block the request
+
                 api_messages = []
                 if self._system_prompt:
                     api_messages.append({"role": "system", "content": self._system_prompt})
-                api_messages.extend(self._conversation)
+                api_messages.extend(conversation)
 
                 body = {
                     "model": self._model,

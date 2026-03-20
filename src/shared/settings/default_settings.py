@@ -45,6 +45,7 @@ DEFAULT_SETTINGS = {
             "anthropic_api": "claude-sonnet-4-20250514",
             "copilot_api": "claude-sonnet-4",
         },
+        "context_truncation": True,  # Truncate old tool results in long agentic sessions to reduce token cost
         "auto_scroll_on_output": True,  # Auto-scroll chat to bottom while AI streams a response
         "inline_completion": {
             "trigger_delay_ms": 200,  # Debounce delay before requesting a completion

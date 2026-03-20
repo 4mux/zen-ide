@@ -216,7 +216,20 @@ class AnthropicHTTPProvider:
         self._current_tool_input_json = ""
         self._text_response = ""
 
-        self._stream_request(api_key, self._conversation, on_chunk, on_complete, on_error, on_tool_use)
+        # Apply context truncation to reduce token cost in long
+        # agentic sessions.
+        send_messages = self._conversation
+        try:
+            from shared.settings.settings_manager import get_setting
+
+            if get_setting("ai.context_truncation", True):
+                from ai.context_truncation import truncate_conversation
+
+                send_messages = truncate_conversation(self._conversation, format="anthropic")
+        except Exception:
+            pass  # Truncation failure must never block the request
+
+        self._stream_request(api_key, send_messages, on_chunk, on_complete, on_error, on_tool_use)
 
     def _stream_request(
         self,

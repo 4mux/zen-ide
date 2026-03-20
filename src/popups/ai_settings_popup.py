@@ -84,6 +84,8 @@ class AISettingsPopup(NvimPopup):
         # Current model list for the selected provider
         self._model_list: list[str] = []
         self._models_fetching = False
+        self._status_dialog_open = False
+        self._status_popup = None
 
         super().__init__(parent, "AI Settings", width=420)
 
@@ -305,6 +307,10 @@ class AISettingsPopup(NvimPopup):
         else:
             provider = self._current_provider
 
+        # Track that a child dialog is open so _check_focus_and_close
+        # doesn't dismiss us while the status popup has focus.
+        self._status_dialog_open = True
+
         # Fetch info in background to avoid blocking UI
         def fetch_and_show():
             info = self._gather_provider_status(provider)
@@ -427,11 +433,10 @@ class AISettingsPopup(NvimPopup):
         return status
 
     def _show_status_dialog(self, provider: str, info: dict):
-        """Display collected status in a simple dialog inside the popup.
+        """Display collected status in a NvimPopup-based dialog.
 
-        The dialog now includes a short debug/usage summary aggregated from the
-        local ai_debug_log (when available) to give an idea of recent requests
-        and character/approximate token usage.
+        Uses the standard NvimPopup base class instead of the deprecated
+        Gtk.MessageDialog to avoid focus/modal grab issues in GTK4.
         """
         # Build message text
         lines = [f"Provider: {_PROVIDER_DISPLAY.get(provider, provider)}"]
@@ -476,171 +481,119 @@ class AISettingsPopup(NvimPopup):
 
         text = "\n".join(lines)
 
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            modal=True,
-            message_type=Gtk.MessageType.INFO,
-            buttons=Gtk.ButtonsType.OK,
-            text="Provider status",
-        )
-        # gi/GTK bindings differ between versions: MessageDialog may not have
-        # format_secondary_text. Fall back to adding a label to the content
-        # area when necessary.
-        if hasattr(dialog, "format_secondary_text"):
-            dialog.format_secondary_text(text)
-        else:
-            # Create a label to show the status text. Make it selectable and wrapped
-            # where the binding supports these APIs.
-            secondary_label = Gtk.Label(label=text)
-            # Some gi/GTK bindings use set_selectable, others expose selectable property.
-            if hasattr(secondary_label, "set_selectable"):
-                try:
-                    secondary_label.set_selectable(True)
-                except Exception:
-                    pass
-            else:
-                try:
-                    secondary_label.set_property("selectable", True)
-                except Exception:
-                    pass
-            # Line wrap method differs between GTK versions/bindings.
-            if hasattr(secondary_label, "set_line_wrap"):
-                try:
-                    secondary_label.set_line_wrap(True)
-                except Exception:
-                    pass
-            elif hasattr(secondary_label, "set_wrap"):
-                try:
-                    secondary_label.set_wrap(True)
-                except Exception:
-                    pass
-            else:
-                # Fall back to enabling line wrap via property if available
-                try:
-                    secondary_label.set_property("wrap", True)
-                except Exception:
-                    pass
+        # Use this popup itself as the transient parent so macOS properly
+        # chains the focus: main window → AISettingsPopup → _StatusPopup.
+        # Using the main IDE window as parent (a sibling) caused the first
+        # click on the OK button to be consumed by macOS for window activation
+        # rather than triggering the button, requiring a second click to close.
+        parent_window = self
 
-            # Create a scrolled window so long outputs are scrollable.
-            scroller = Gtk.ScrolledWindow()
-            # Prefer min content sizing when available; otherwise fall back to size_request.
-            try:
-                scroller.set_min_content_height(240)
-            except Exception:
-                try:
-                    scroller.set_size_request(-1, 240)
-                except Exception:
-                    pass
-            try:
-                scroller.set_min_content_width(520)
-            except Exception:
-                pass
-            # Set scroll policy where available (GTK3)
-            try:
-                scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-            except Exception:
+        class _StatusPopup(NvimPopup):
+            """Lightweight NvimPopup to display provider status text."""
+
+            def __init__(inner_self, parent, status_text, on_close_cb):
+                inner_self._status_text = status_text
+                inner_self._on_close_cb = on_close_cb
+                inner_self._ok_btn = None
+                super().__init__(parent, "Provider Status", width=560)
+
+            def _create_content(inner_self):
+                label = Gtk.Label(label=inner_self._status_text)
+                label.set_halign(Gtk.Align.START)
+                label.set_valign(Gtk.Align.START)
+                label.set_wrap(True)
+                label.set_max_width_chars(80)
+                label.set_selectable(False)
+                label.set_focusable(False)
+                label.add_css_class("nvim-popup-message")
+
+                scrolled = Gtk.ScrolledWindow()
+                scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+                scrolled.set_min_content_height(200)
+                scrolled.set_max_content_height(400)
+                scrolled.set_focusable(False)
+                scrolled.set_child(label)
+
+                inner_self._content_box.append(scrolled)
+
+                # OK button — use a plain Gtk.Button to avoid ToggleButton
+                # double-click issues with ZenButton
+                ok_btn = Gtk.Button(label="OK")
+                ok_btn.add_css_class("nvim-popup-button")
+                ok_btn.add_css_class("nvim-popup-button-primary")
+                ok_btn.connect("clicked", lambda _btn: inner_self.close())
+                ok_btn.set_halign(Gtk.Align.CENTER)
+                ok_btn.set_margin_top(8)
+                inner_self._content_box.append(ok_btn)
+                inner_self._ok_btn = ok_btn
+
+                hint_bar = inner_self._create_hint_bar([("Esc", "close"), ("Enter", "close")])
+                hint_bar.set_halign(Gtk.Align.END)
+                inner_self._content_box.append(hint_bar)
+
+            def _on_focus_leave(inner_self, controller):
+                """Don't auto-close on focus leave — only close via OK/Esc/Enter."""
                 pass
 
-            # Add the label into the scroller; API differs between GTK3/GTK4.
-            added = False
-            try:
-                # GTK4
-                scroller.set_child(secondary_label)
-                added = True
-            except Exception:
-                try:
-                    # GTK3
-                    scroller.add(secondary_label)
-                    added = True
-                except Exception:
-                    added = False
-
-            # Margin for the label where supported
-            try:
-                if hasattr(secondary_label, "set_margin_top"):
-                    secondary_label.set_margin_top(8)
-                else:
-                    secondary_label.set_property("margin-top", 8)
-            except Exception:
-                pass
-
-            content_area = dialog.get_content_area()
-            # GTK4 Boxes use append; older GTK may use add. Try append first.
-            try:
-                content_area.append(scroller)
-            except AttributeError:
-                try:
-                    content_area.add(scroller)
-                except Exception:
-                    # As a very last resort, add the label itself
-                    try:
-                        content_area.append(secondary_label)
-                    except Exception:
-                        try:
-                            content_area.add(secondary_label)
-                        except Exception:
-                            pass
-
-        def _on_dialog_response(dlg, response):
-            # Destroy the dialog to ensure any modal grabs are released.
-            try:
-                dlg.destroy()
-            except Exception:
-                try:
-                    dlg.close()
-                except Exception:
-                    pass
-
-            # Restore focus to the AI settings popup (or its parent) on the next
-            # idle tick to avoid re-entrancy issues with GTK focus handling.
-            def _restore_focus():
-                try:
-                    # Try to restore focus to a sensible widget inside the AI settings
-                    # popup rather than re-presenting the window (which can confuse
-                    # some GTK focus/grab states). Prefer the provider dropdown.
-                    try:
-                        if hasattr(self, "_provider_dropdown") and self._provider_dropdown:
-                            self._provider_dropdown.grab_focus()
-                            return False
-                    except Exception:
-                        pass
-
-                    # Fallback to giving focus to the popup window itself
-                    try:
-                        self.grab_focus()
-                        return False
-                    except Exception:
-                        pass
-
-                    # Final fallback: present the parent window so the app regains
-                    # key focus.
-                    if self._parent:
-                        try:
-                            self._parent.present()
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+            def _on_key_pressed(inner_self, controller, keyval, keycode, state) -> bool:
+                if keyval in (Gdk.KEY_Escape, Gdk.KEY_Return):
+                    inner_self.close()
+                    return True
                 return False
 
-            try:
-                GLib.idle_add(_restore_focus)
-            except Exception:
-                pass
+            def present(inner_self):
+                super().present()
+                # Give focus to the OK button so the scrolled area doesn't
+                # appear visually selected, and Enter immediately works.
+                if inner_self._ok_btn:
+                    inner_self._ok_btn.grab_focus()
 
-        dialog.connect("response", _on_dialog_response)
-        dialog.present()
+            def close(inner_self):
+                if inner_self._closing:
+                    return
+                cb = inner_self._on_close_cb
+                inner_self._on_close_cb = None  # prevent double-fire
+                super().close()
+                if cb:
+                    cb()
+
+        def _on_status_closed():
+            # Delay clearing the flag so _check_focus_and_close doesn't fire
+            # before focus has had time to return to AISettingsPopup.
+            def _clear_flag():
+                self._status_dialog_open = False
+                return False
+
+            GLib.timeout_add(150, _clear_flag)
+
+        popup = _StatusPopup(parent_window, text, _on_status_closed)
+        self._status_popup = popup  # prevent GC; also used by _dismiss_click_outside guard
+        popup.present()
 
     def _on_focus_leave(self, controller):
         """Override to prevent close when dropdown popover takes focus."""
         GLib.timeout_add(100, self._check_focus_and_close)
 
+    def _dismiss_click_outside(self):
+        """Override: ignore clicks that land on the child status popup."""
+        if self._closing:
+            return False
+        # If the status popup is open, its NS window is a legitimate click
+        # target — don't let AISettingsPopup's monitor dismiss us for those.
+        if getattr(self, "_status_dialog_open", False):
+            return False
+        return super()._dismiss_click_outside()
+
     def _check_focus_and_close(self):
-        """Close only if focus has truly left this dialog (not to a dropdown popover)."""
+        """Close only if focus has truly left this dialog (not to a dropdown popover or child dialog)."""
         if self._closing:
             return False
         # Focus is still inside this window
         if self.get_focus() is not None or self.is_active():
+            return False
+        # Don't close while a child status dialog is open
+        if getattr(self, "_status_dialog_open", False):
+            GLib.timeout_add(200, self._check_focus_and_close)
             return False
         # Check if either dropdown's internal popover is currently visible
         for dropdown in (self._provider_dropdown, self._model_dropdown):
