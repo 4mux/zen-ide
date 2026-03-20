@@ -1777,11 +1777,13 @@ class AIChatTerminalView(Gtk.Box):
         }
         action, detail = labels.get(name, (name, str(inp)))
 
-        # Split detail into lines and format with box-drawing chars
+        # Split detail into lines and format with box-drawing chars.
+        # Leading \n\n ensures exactly one blank line before the action
+        # (paragraphs are separated by one blank line, not less not more).
         lines = detail.split("\n") if detail else [""]
         if len(lines) == 1:
             # Single line: just use └
-            return f"\n{action}\n └ {lines[0]}\n"
+            return f"\n\n{action}\n └ {lines[0]}\n"
         else:
             # Multiple lines: use │ for all but last, └ for last
             formatted_lines = []
@@ -1790,7 +1792,7 @@ class AIChatTerminalView(Gtk.Box):
                     formatted_lines.append(f" │ {line}")
                 else:
                     formatted_lines.append(f" └ {line}")
-            return f"\n{action}\n" + "\n".join(formatted_lines) + "\n"
+            return f"\n\n{action}\n" + "\n".join(formatted_lines) + "\n"
 
     def _on_http_chunk(self, text: str):
         """Handle a streaming chunk from an HTTP provider (main thread)."""
@@ -2277,6 +2279,28 @@ class AIChatTerminalView(Gtk.Box):
         """Append text to the canvas."""
         # Collapse 3+ consecutive newlines to 2 (max 1 blank line)
         text = re.sub(r"\n{3,}", "\n\n", text)
+
+        # Cross-call normalisation: if the buffer already ends with blank
+        # lines, strip leading newlines from the new text to avoid doubling
+        # the gap.  This ensures exactly 1 blank line between paragraphs
+        # even when consecutive _append_text calls both include spacing.
+        buf = self.terminal._buffer
+        line_count = buf.get_line_count()
+        if line_count >= 2 and text.startswith("\n"):
+            # Count trailing empty lines already in the buffer
+            trailing_empty = 0
+            for idx in range(line_count - 1, -1, -1):
+                if buf.get_line_text(idx).strip() == "":
+                    trailing_empty += 1
+                else:
+                    break
+            # Strip leading newlines from text, then re-add just enough
+            # to reach exactly 1 blank line (2 newlines total: end-of-line + blank).
+            if trailing_empty > 0:
+                stripped = text.lstrip("\n")
+                needed = max(0, 2 - trailing_empty)
+                text = "\n" * needed + stripped
+
         # For multi-line text, ensure each line starts at column 0
         # by prepending \r to each line (prevents text shift on restore)
         lines = text.split("\n")
