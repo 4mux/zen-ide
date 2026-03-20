@@ -11,6 +11,19 @@ import re
 
 from shared.utils import display_width as _display_width
 
+# Pre-compiled regex for stripping ANSI escape sequences.
+# Shared across all methods to avoid re-compiling per call.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+# Pre-compiled regex patterns for markdown line classification.
+# These are called on every line during rendering; pre-compiling avoids
+# the overhead of re.match() rebuilding the pattern each time.
+_RE_HR = re.compile(r"^[-*_]{3,}\s*$")
+_RE_TABLE_SEP = re.compile(r"^\|?[\s|:-]+\|?$")
+_RE_HEADER = re.compile(r"^(#{1,6})\s+(.*)")
+_RE_LIST_ITEM = re.compile(r"^(\s*)([-*+●]|\d+\.)\s+(.*)")
+_RE_TABLE_SEP_INNER = re.compile(r"^[\s|:-]+$")
+
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int] | None:
     h = hex_color.lstrip("#")
@@ -57,6 +70,7 @@ class TerminalMarkdownRenderer:
         self._in_table = False
         self._code_bg = ""
         self._pygments_style = "monokai"
+        self._pygments_formatter = None  # Cached Pygments formatter instance
         self._terminal_width_fn = terminal_width_fn
         self._seen_content = False
 
@@ -229,9 +243,9 @@ class TerminalMarkdownRenderer:
             return self._render_code_line(line)
 
         # Table detection: lines with | (but not just |---|)
-        if "|" in stripped and not re.match(r"^[-*_]{3,}\s*$", stripped):
+        if "|" in stripped and not _RE_HR.match(stripped):
             # Check if this is a table separator row or data row
-            if re.match(r"^\|?[\s|:-]+\|?$", stripped):
+            if _RE_TABLE_SEP.match(stripped):
                 # Separator row
                 self._table_buffer.append(stripped)
                 self._in_table = True
@@ -254,7 +268,7 @@ class TerminalMarkdownRenderer:
         term_w = self._get_terminal_width()
 
         # Headers
-        m = re.match(r"^(#{1,6})\s+(.*)", stripped)
+        m = _RE_HEADER.match(stripped)
         if m:
             level = len(m.group(1))
             text = m.group(2)
@@ -275,13 +289,13 @@ class TerminalMarkdownRenderer:
             return self._wrap_prefixed_ansi(content, term_w, prefix)
 
         # Horizontal rule
-        if re.match(r"^[-*_]{3,}\s*$", stripped):
+        if _RE_HR.match(stripped):
             fg = self._fg("code")
             return f"{fg}{self.DIM}{'─' * min(44, term_w)}{self.RESET}"
 
         # List items (unordered and ordered)
         # Also match ● directly since some AI providers output pre-formatted bullets
-        m = re.match(r"^(\s*)([-*+●]|\d+\.)\s+(.*)", stripped)
+        m = _RE_LIST_ITEM.match(stripped)
         if m:
             indent = m.group(1)
             marker = m.group(2)
@@ -318,8 +332,7 @@ class TerminalMarkdownRenderer:
         max_allowed_width = max(40, term_w - 2)  # Leave small margin
 
         # Compute effective width: max of default and longest content line + 4 (borders + padding)
-        _ansi_re = re.compile(r"\x1b\[[0-9;]*m")
-        max_content = max((_display_width(_ansi_re.sub("", l)) for l in highlighted_lines), default=0)
+        max_content = max((_display_width(_ANSI_RE.sub("", l)) for l in highlighted_lines), default=0)
         width = min(max_allowed_width, max(60, max_content + 4))
 
         # Content width available inside the box (width - 2 borders - 2 padding spaces)
@@ -328,7 +341,7 @@ class TerminalMarkdownRenderer:
         # Hard-wrap lines that exceed content width (preserving ANSI codes)
         wrapped_lines = []
         for hl_line in highlighted_lines:
-            plain = _ansi_re.sub("", hl_line)
+            plain = _ANSI_RE.sub("", hl_line)
             if _display_width(plain) <= content_width:
                 wrapped_lines.append(hl_line)
             else:
@@ -343,7 +356,7 @@ class TerminalMarkdownRenderer:
         body_lines = []
         for hl_line in wrapped_lines:
             # Pad line to fill background
-            visible_len = _display_width(_ansi_re.sub("", hl_line))
+            visible_len = _display_width(_ANSI_RE.sub("", hl_line))
             pad = max(0, content_width - visible_len)
             body_lines.append(
                 f"{fg}{self.DIM}│{self.RESET} {bg}{hl_line}{' ' * pad}{self.RESET} {fg}{self.DIM}│{self.RESET}"
@@ -359,13 +372,12 @@ class TerminalMarkdownRenderer:
         fg = self._fg("code")
         bg = self._bg(self._code_bg) if self._code_bg else ""
         content_width = self._code_block_width - 4
-        _ansi_re = re.compile(r"\x1b\[[0-9;]*m")
 
         # Highlight the single line
         highlighted = self._highlight_single_line(line)
 
         # Hard-wrap if needed
-        plain = _ansi_re.sub("", highlighted)
+        plain = _ANSI_RE.sub("", highlighted)
         if _display_width(plain) > content_width:
             wrapped = self._hard_wrap_ansi(highlighted, content_width)
         else:
@@ -373,7 +385,7 @@ class TerminalMarkdownRenderer:
 
         body_lines = []
         for hl_line in wrapped:
-            visible_len = _display_width(_ansi_re.sub("", hl_line))
+            visible_len = _display_width(_ANSI_RE.sub("", hl_line))
             pad = max(0, content_width - visible_len)
             body_lines.append(
                 f"{fg}{self.DIM}│{self.RESET} {bg}{hl_line}{' ' * pad}{self.RESET} {fg}{self.DIM}│{self.RESET}"
@@ -381,15 +393,17 @@ class TerminalMarkdownRenderer:
         return "\n".join(body_lines)
 
     def _highlight_single_line(self, line: str) -> str:
-        """Highlight a single code line using the cached lexer."""
+        """Highlight a single code line using the cached lexer and formatter."""
         if self._code_lexer is None:
             fg = self._fg("code")
             return f"{fg}{line}{self.RESET}"
         try:
             from pygments import highlight
-            from pygments.formatters import TerminalTrueColorFormatter
 
-            formatter = TerminalTrueColorFormatter(style=self._pygments_style)
+            formatter = self._get_formatter()
+            if formatter is None:
+                fg = self._fg("code")
+                return f"{fg}{line}{self.RESET}"
             highlighted = highlight(line, self._code_lexer, formatter)
             return highlighted.rstrip("\n")
         except Exception:
@@ -407,12 +421,29 @@ class TerminalMarkdownRenderer:
         except Exception:
             return None
 
+    def _get_formatter(self):
+        """Get a cached Pygments TerminalTrueColorFormatter instance.
+
+        Reuses the same formatter across all highlight calls within a
+        code block (and across code blocks with the same style) to avoid
+        the overhead of re-instantiating and re-parsing the Pygments
+        style definition on every line.
+        """
+        if self._pygments_formatter is not None:
+            return self._pygments_formatter
+        try:
+            from pygments.formatters import TerminalTrueColorFormatter
+
+            self._pygments_formatter = TerminalTrueColorFormatter(style=self._pygments_style)
+            return self._pygments_formatter
+        except Exception:
+            return None
+
     def _hard_wrap_ansi(self, s: str, max_w: int) -> list[str]:
         """Hard-wrap an ANSI-formatted string by character to fit within max_w visible width."""
         if max_w < 1:
             return [s]
 
-        _ansi_re = re.compile(r"\x1b\[[0-9;]*m")
         lines = []
         current_line = ""
         current_width = 0
@@ -421,7 +452,7 @@ class TerminalMarkdownRenderer:
         i = 0
         while i < len(s):
             # Check for ANSI escape sequence
-            m = _ansi_re.match(s, i)
+            m = _ANSI_RE.match(s, i)
             if m:
                 code = m.group()
                 current_line += code
@@ -465,8 +496,8 @@ class TerminalMarkdownRenderer:
     ) -> str:
         """Wrap ANSI-formatted content within a prefixed block."""
         continuation_prefix = first_prefix if continuation_prefix is None else continuation_prefix
-        first_width = _display_width(re.sub(r"\x1b\[[0-9;]*m", "", first_prefix))
-        continuation_width = _display_width(re.sub(r"\x1b\[[0-9;]*m", "", continuation_prefix))
+        first_width = _display_width(_ANSI_RE.sub("", first_prefix))
+        continuation_width = _display_width(_ANSI_RE.sub("", continuation_prefix))
         first_content_width = max(1, max_w - first_width)
         continuation_content_width = max(1, max_w - continuation_width)
 
@@ -489,7 +520,6 @@ class TerminalMarkdownRenderer:
         """Highlight code using Pygments. Falls back to plain colored text."""
         try:
             from pygments import highlight
-            from pygments.formatters import TerminalTrueColorFormatter
             from pygments.lexers import TextLexer, get_lexer_by_name
 
             try:
@@ -497,7 +527,11 @@ class TerminalMarkdownRenderer:
             except Exception:
                 lexer = TextLexer()
 
-            formatter = TerminalTrueColorFormatter(style=self._pygments_style)
+            formatter = self._get_formatter()
+            if formatter is None:
+                fg = self._fg("code")
+                return [f"{fg}{line}{self.RESET}" for line in code.split("\n")]
+
             highlighted = highlight(code, lexer, formatter)
             # Remove trailing newline from Pygments output
             lines = highlighted.rstrip("\n").split("\n")
@@ -521,7 +555,7 @@ class TerminalMarkdownRenderer:
         separator_indices: list[int] = []
         for idx, row in enumerate(rows):
             cells = [c.strip() for c in row.strip("|").split("|")]
-            if re.match(r"^[\s|:-]+$", row.strip("|").replace("|", "").replace(" ", "")):
+            if _RE_TABLE_SEP_INNER.match(row.strip("|").replace("|", "").replace(" ", "")):
                 separator_indices.append(idx)
             else:
                 parsed.append(cells)
@@ -531,10 +565,9 @@ class TerminalMarkdownRenderer:
             return "\n".join(f"{fg}{r}{self.RESET}" for r in rows)
 
         # Apply inline formatting to cells and compute visible widths
-        _ansi_re = re.compile(r"\x1b\[[0-9;]*m")
 
         def _visible_width(s: str) -> int:
-            return _display_width(_ansi_re.sub("", s))
+            return _display_width(_ANSI_RE.sub("", s))
 
         formatted: list[list[str]] = []
         for row in parsed:
@@ -573,7 +606,7 @@ class TerminalMarkdownRenderer:
             if max_w < 1:
                 return [s]
             # Strip ANSI and split into words with their positions
-            plain = _ansi_re.sub("", s)
+            plain = _ANSI_RE.sub("", s)
             words = plain.split()
             if not words:
                 return [s]

@@ -54,6 +54,8 @@ class ChatCanvas(Gtk.DrawingArea):
 
         # Colour cache: hex string → Gdk.RGBA (avoids re-parsing every frame)
         self._rgba_cache: dict[str, Gdk.RGBA] = {}
+        # Dim colour cache: maps (fg_hex, bg_hex) → dimmed Gdk.RGBA
+        self._dim_cache: dict[tuple[str, str], Gdk.RGBA] = {}
 
         # Cached RGBA objects
         self._fg_rgba = self._hex_to_rgba(self._fg_hex)
@@ -389,6 +391,7 @@ class ChatCanvas(Gtk.DrawingArea):
             self._selection_bg_hex = self._rgba_to_hex(selection_bg)
             self._selection_rgba = selection_bg
         self._layout_cache.clear()
+        self._dim_cache.clear()
         self._schedule_redraw()
 
     def set_editable(self, editable: bool):
@@ -466,17 +469,39 @@ class ChatCanvas(Gtk.DrawingArea):
         cumulative offset drift, making lines appear at wrong Y positions
         and causing some content to disappear from the viewport during
         resize.
+
+        Fast-path: for pure-ASCII lines (common in code blocks), every
+        character has display width 1, so we can compute rows with simple
+        arithmetic instead of per-character iteration.
         """
         if content_width_px <= 0:
             return 1
         text = self._buffer.get_line_text(line_idx)
         if not text:
             return 1
+        char_width = self._char_width
+        # Fast path: if all characters are printable ASCII (0x20-0x7E),
+        # each has display width 1, so total pixel width = len * char_width.
+        # This avoids per-character display_width() calls for the ~90% of
+        # lines that are pure ASCII (code, table content, regular text).
+        try:
+            encoded = text.encode("ascii")
+            # All characters are ASCII.  Check they're all printable (0x20-0x7E).
+            if all(0x20 <= b <= 0x7E for b in encoded):
+                total_w = len(text) * char_width
+                if total_w <= content_width_px + 0.5:
+                    return 1
+                # Integer ceil division for number of rows
+                chars_per_row = max(1, int((content_width_px + 0.5) / char_width))
+                return (len(text) + chars_per_row - 1) // chars_per_row
+        except UnicodeEncodeError:
+            pass
+        # Slow path: non-ASCII content (box-drawing, CJK, emoji, etc.)
         rows = 1
         row_w = 0.0
         has_content = False
         for ch in text:
-            ch_w = display_width(ch) * self._char_width
+            ch_w = display_width(ch) * char_width
             if has_content and row_w + ch_w > content_width_px + 0.5:
                 rows += 1
                 row_w = ch_w
@@ -740,10 +765,29 @@ class ChatCanvas(Gtk.DrawingArea):
         else:
             # Pre-compute the character-level layout: list of
             # (char, char_pixel_width, span_index) so we can split across rows.
+            #
+            # Fast-path: when a span's text is all printable ASCII, every
+            # character has display width 1, so we can batch-compute widths
+            # without calling display_width() per character.
             char_cells: list[tuple[str, float, int]] = []
+            cw = self._char_width
             for si, span in enumerate(spans):
-                for ch in span.text:
-                    char_cells.append((ch, display_width(ch) * self._char_width, si))
+                text = span.text
+                if not text:
+                    continue
+                # Check if all chars are printable ASCII (very common for
+                # code block content, table text, and regular prose)
+                try:
+                    encoded = text.encode("ascii")
+                    if all(0x20 <= b <= 0x7E for b in encoded):
+                        # All ASCII: width = 1 * char_width for each char
+                        char_cells.extend((ch, cw, si) for ch in text)
+                        continue
+                except UnicodeEncodeError:
+                    pass
+                # Slow path for non-ASCII spans
+                for ch in text:
+                    char_cells.append((ch, display_width(ch) * cw, si))
 
             # Split chars into visual rows based on content_width_px
             rows: list[list[tuple[str, float, int]]] = []
@@ -838,8 +882,15 @@ class ChatCanvas(Gtk.DrawingArea):
                     fg = self._make_dim(fg)
 
                 # Check if this run contains wide/box characters that need
-                # per-character centering
-                needs_grid = any(display_width(ch) > 1 or 0x2500 <= ord(ch) <= 0x257F for ch in run_text)
+                # per-character centering.  Uses pre-computed pixel widths
+                # from char_cells to avoid redundant display_width() calls:
+                # a char with pixel width > char_width is wide, and
+                # box-drawing chars are detected by codepoint range.
+                cw = self._char_width
+                needs_grid = any(
+                    c[1] > cw + 0.5 or 0x2500 <= ord(c[0]) <= 0x257F
+                    for c in row_cells[run_start:run_end]
+                )
 
                 if needs_grid:
                     x = self._draw_wide_span_text(
@@ -1603,10 +1654,26 @@ class ChatCanvas(Gtk.DrawingArea):
         return f"#{r:02x}{g:02x}{b:02x}"
 
     def _make_dim(self, color: Gdk.RGBA) -> Gdk.RGBA:
-        """Return a dimmed version of the color."""
+        """Return a dimmed version of the color, with caching.
+
+        Dim spans (e.g. table borders, code block frames) reuse the same
+        few colors thousands of times.  Caching avoids creating a fresh
+        Gdk.RGBA and doing the blending arithmetic on every call.
+        """
+        # Build a cache key from the color's RGB channels (quantised to
+        # avoid float comparison issues).
+        key = (
+            round(color.red, 4),
+            round(color.green, 4),
+            round(color.blue, 4),
+        )
+        cached = self._dim_cache.get(key)
+        if cached is not None:
+            return cached
         dim = Gdk.RGBA()
         dim.red = color.red * self._dim_alpha + self._bg_rgba.red * (1 - self._dim_alpha)
         dim.green = color.green * self._dim_alpha + self._bg_rgba.green * (1 - self._dim_alpha)
         dim.blue = color.blue * self._dim_alpha + self._bg_rgba.blue * (1 - self._dim_alpha)
         dim.alpha = color.alpha
+        self._dim_cache[key] = dim
         return dim
