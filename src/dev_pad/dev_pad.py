@@ -87,8 +87,8 @@ class DevPad(Gtk.Box):
         subscribe_theme_change(self._on_theme_change)
 
     def _get_font_settings(self):
-        """Get font settings from config."""
-        settings = get_font_settings("dev_pad")
+        """Get font settings from config (uses editor fonts)."""
+        settings = get_font_settings("editor")
         family = settings["family"]
         size = settings.get("size", DEFAULT_FONT_SIZE)
         weight = settings.get("weight", "normal")

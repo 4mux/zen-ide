@@ -172,9 +172,9 @@ class TestToolIterationLimit:
         """Without yolo mode, exceeding _MAX_TOOL_ITERATIONS triggers the limit."""
         assert _should_limit_tools(False, _MAX_TOOL_ITERATIONS + 1) is True
 
-    def test_max_tool_iterations_is_25(self):
+    def test_max_tool_iterations_is_5(self):
         """Verify the constant value for documentation purposes."""
-        assert _MAX_TOOL_ITERATIONS == 25
+        assert _MAX_TOOL_ITERATIONS == 5
 
 
 # ---------------------------------------------------------------------------

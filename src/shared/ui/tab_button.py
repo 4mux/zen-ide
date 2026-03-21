@@ -112,6 +112,9 @@ class TabButton(Gtk.Box):
         self._show_close = show
         self.close_btn.set_visible(show)
 
+    def get_title(self) -> str:
+        return self._title
+
     def set_title(self, title):
         self._title = title
         self.label.set_label(title)

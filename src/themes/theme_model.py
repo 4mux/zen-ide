@@ -71,27 +71,27 @@ class Theme:
     syntax_parameter: str = ""
 
     # Sash (splitter)
-    sash_color: str = ""
+    sash_color: str = "#3e3e42"
 
     # AI processing color (purple for thinking indicator)
-    ai_processing_color: str = ""
+    ai_processing_color: str = "#c678dd"
 
     # Terminal cyan (used for user labels in AI chat)
-    term_cyan: str = ""
+    term_cyan: str = "#56b6c2"
 
     # AI Chat colors
-    chat_user_fg: str = ""
-    chat_assistant_fg: str = ""
+    chat_user_fg: str = "#61afef"
+    chat_assistant_fg: str = "#98c379"
 
     # Search/Find colors
-    search_match_bg: str = ""
-    search_current_bg: str = ""
+    search_match_bg: str = "#515c6a"
+    search_current_bg: str = "#61afef"
 
     # Dark/light mode flag
     is_dark: bool = True
 
     # Tree ignored (gitignored items)
-    tree_ignored_fg: str = ""
+    tree_ignored_fg: str = "#6c6c6c"
 
     # Git status colors
     git_added: str = "#98c379"
@@ -129,6 +129,23 @@ class Theme:
         if fallback_attr:
             return getattr(self, fallback_attr, "#d4d4d4")
         return "#d4d4d4"
+
+    def get_color(self, attr: str) -> str:
+        """Safely get any theme color with fallback to prevent empty values."""
+        val = getattr(self, attr, "")
+        if val:
+            return val
+
+        # Common fallbacks for different color types
+        if "bg" in attr:
+            return self.main_bg or "#1e1e1e"
+        elif "fg" in attr:
+            return self.fg_color or "#d4d4d4"
+        elif attr.startswith("syntax_"):
+            return self.get_syntax_color(attr)
+        else:
+            # Generic fallback for any other color
+            return "#606060"
 
     # Computed properties for compatibility
     @property

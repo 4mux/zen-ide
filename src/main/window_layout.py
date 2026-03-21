@@ -774,8 +774,7 @@ class WindowLayoutMixin:
         if hasattr(self.terminal_view, "terminal"):
             add_focus_tracker(self.terminal_view.terminal, "terminal", "terminal")
 
-        # AI chat focus - track via AIChatTabs which wraps the input
-        # The AIChatTabs panel handles its own focus via click controller
+        # AI terminal focus - the VTE widget handles its own focus via click controller
 
     def _setup_file_drop_target(self, widget):
         """Set up drag-and-drop target to open external files dragged into the IDE."""

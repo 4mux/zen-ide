@@ -27,7 +27,7 @@ class AdaptiveDebounce:
     Slow typing (long intervals) → shorter delay (user is thinking).
     """
 
-    def __init__(self, min_ms: int = 250, max_ms: int = 800, window_size: int = 5):
+    def __init__(self, min_ms: int = 300, max_ms: int = 800, window_size: int = 5):
         self._min_ms = min_ms
         self._max_ms = max_ms
         self._timestamps: list[float] = []

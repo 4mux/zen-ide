@@ -1,7 +1,6 @@
 """Tests for ai.tool_executor module."""
 
 import pytest
-
 from ai.tool_executor import ToolExecutor
 
 

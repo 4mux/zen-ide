@@ -2,8 +2,8 @@
 
 **Created_at:** 2026-03-14  
 **Updated_at:** 2026-03-15  
-**Status:** Implemented  
-**Goal:** Reduce perceived and actual latency in AI chat streaming to match terminal/CLI responsiveness  
+**Status:** Superseded — custom rendering replaced by VTE terminal, see [2026_03_21_ai_terminal.md](2026_03_21_ai_terminal.md)
+**Goal:** Reduce perceived and actual latency in AI chat streaming to match terminal/CLI responsiveness
 **Scope:** `src/ai/ai_chat_terminal.py`, `src/ai/chat_canvas.py`, `src/ai/terminal_markdown_renderer.py`, `src/ai/system_tag_stripper.py`, `src/ai/ansi_buffer.py`  
 
 ---

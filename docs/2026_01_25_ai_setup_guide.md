@@ -1,117 +1,62 @@
 # AI SETUP GUIDE
 
-**Created_at:** 2026-01-25  
-**Updated_at:** 2026-06-20  
-**Status:** Active  
-**Goal:** Document AI provider setup — HTTP API providers  
-**Scope:** Copilot API, Anthropic API, OpenAI API  
+**Created_at:** 2026-01-25
+**Updated_at:** 2026-03-21
+**Status:** Superseded
+**Goal:** Document AI provider setup
+**Scope:** AI chat, inline completions
+
+> **Superseded:** The HTTP API providers (Anthropic, Copilot Chat, OpenAI) described below have been replaced by the VTE-based AI Terminal, which runs the `claude` or `copilot` CLI directly. See [2026_03_21_ai_terminal.md](2026_03_21_ai_terminal.md) for the current system. API keys are no longer managed by Zen IDE for chat — authentication is handled by the CLI tools themselves.
 
 ---
 
-Zen IDE supports three AI providers, all via **direct HTTP API calls** — no CLI tools or Node.js required.
+## Current Setup (2026-03-21)
 
-## Copilot API (Recommended — Zero Setup)
+### AI Chat — CLI-based
 
-If you use GitHub Copilot in another editor (JetBrains, Neovim, etc.), Zen auto-detects your existing credentials from `~/.config/github-copilot/apps.json`.
+Zen IDE runs `claude` or `copilot` CLI directly in a VTE terminal. No API keys or HTTP configuration needed in Zen.
 
-### How it works
+**Prerequisites:**
+- Install the [Claude CLI](https://docs.anthropic.com/en/docs/claude-cli) (`claude`) and/or [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`copilot`)
+- Authenticate via each CLI's own auth flow (e.g., `claude login`, `copilot auth`)
 
-When you authenticate GitHub Copilot in any editor, it stores an OAuth token (`ghu_...`) in `~/.config/github-copilot/apps.json`. Zen reads this token and exchanges it for a Copilot session token via `api.github.com/copilot_internal/v2/token`, then uses that to call `api.githubcopilot.com/chat/completions`.
+Zen auto-detects installed CLIs. Configure the preferred provider via `ai.provider` setting (`"claude_cli"` or `"copilot_cli"`) or use the header dropdown in the AI panel.
 
-### Token resolution order
+### Inline Completions — Copilot HTTP API
 
-1. `~/.config/github-copilot/apps.json` — Copilot OAuth auth from any editor (most reliable)
+Ghost-text inline completions still use the Copilot HTTP API directly. This requires a GitHub Copilot subscription.
+
+**Token resolution order:**
+1. `~/.config/github-copilot/apps.json` — auto-detected from any editor with Copilot auth
 2. `~/.zen_ide/api_keys.json` — `{"github": "ghp_..."}` or `{"github": "ghu_..."}`
 3. `GITHUB_TOKEN` environment variable
 
-Each source is tried in order; the first token that successfully exchanges for a Copilot session token is used.
+### Troubleshooting
 
-### Manual setup (if auto-detection fails)
+**"AI chat not starting"**
+- Check that `claude` or `copilot` CLI is installed and in your PATH
+- Run `claude --version` or `copilot --version` in a terminal to verify
+- Check `ai.is_enabled` is `true` in settings
 
-**In-IDE:** Open AI chat → click provider selector → choose "Copilot API ⚙ setup" → enter your GitHub token.
-
-**Manual:** Create `~/.zen_ide/api_keys.json`:
-```json
-{
-  "github": "ghp_your-github-token"
-}
-```
-
-Or set the environment variable:
-```bash
-export GITHUB_TOKEN="ghp_your-github-token"
-```
-
-> Your GitHub account must have an active Copilot subscription. Regular PATs from [github.com/settings/tokens](https://github.com/settings/tokens) work if your account has Copilot access.
-
-## Anthropic API (Claude)
-
-Direct access to Claude models. No CLI needed.
-
-**In-IDE setup:** Open AI chat → click provider selector → choose "Anthropic API ⚙ setup" → enter your API key.
-
-**Manual setup:** Create `~/.zen_ide/api_keys.json`:
-```json
-{
-  "anthropic": "sk-ant-your-key-here"
-}
-```
-
-Or set the environment variable:
-```bash
-export ANTHROPIC_API_KEY="sk-ant-your-key-here"
-```
-
-Get an API key at: https://console.anthropic.com/settings/keys
-
-## OpenAI API (GPT, o-series)
-
-Works with OpenAI and any OpenAI-compatible endpoint (Azure, local proxies).
-
-**In-IDE setup:** Open AI chat → click provider selector → choose "OpenAI API ⚙ setup" → enter your API key.
-
-**Manual setup:** Create `~/.zen_ide/api_keys.json`:
-```json
-{
-  "openai": "sk-your-key-here",
-  "openai_base_url": "https://api.openai.com/v1"
-}
-```
-
-Or set environment variables:
-```bash
-export OPENAI_API_KEY="sk-your-key-here"
-export OPENAI_API_BASE="https://api.openai.com/v1"  # optional, defaults to OpenAI
-```
-
-Get an API key at: https://platform.openai.com/api-keys
+**"Inline suggestions not working"**
+- Check `ai.show_inline_suggestions` is `true` in settings
+- Verify Copilot subscription is active
+- Check `~/.config/github-copilot/apps.json` exists (authenticate Copilot in any editor)
 
 ---
 
-## TROUBLESHOOTING
+## Historical: HTTP API Setup (Pre-2026-03-21)
 
-**"Failed to get Copilot session token"**
-- Your GitHub token may not have Copilot access
-- Check you have an active Copilot subscription at [github.com/settings/copilot](https://github.com/settings/copilot)
-- If using `~/.config/github-copilot/apps.json`, try re-authenticating Copilot in your editor
+The sections below are kept for reference but describe the old system.
 
-**"Anthropic API key not configured"**
-- Check `~/.zen_ide/api_keys.json` exists and has `"anthropic": "sk-ant-..."` entry
-- Or set `ANTHROPIC_API_KEY` environment variable
+### Copilot API (Old)
 
-**"OpenAI API key not configured"**
-- Check `~/.zen_ide/api_keys.json` exists and has `"openai": "sk-..."` entry
-- Or set `OPENAI_API_KEY` environment variable
+Used `api.githubcopilot.com/chat/completions` via direct HTTP. Token from `~/.config/github-copilot/apps.json` exchanged for session token.
 
-**"Invalid API key" / 401 error**
-- Verify your key is valid and not expired
-- Anthropic: https://console.anthropic.com/settings/keys
-- OpenAI: https://platform.openai.com/api-keys
+### Anthropic API (Old)
 
-**"Rate limited" / 429 error**
-- Wait a few seconds and try again
-- Check your API plan usage limits
+Used `api.anthropic.com/v1/messages` via direct HTTP. API key from `ANTHROPIC_API_KEY` env var or `~/.zen_ide/api_keys.json`.
 
-**"AI suggestions not working"**
-- Check `ai.is_enabled` is `true` and `ai.show_inline_suggestions` is `true` in settings
-- Check terminal for detailed error messages
+### OpenAI API (Old)
+
+Used OpenAI-compatible endpoints via direct HTTP. API key from `OPENAI_API_KEY` env var or `~/.zen_ide/api_keys.json`.

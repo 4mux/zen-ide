@@ -290,21 +290,36 @@ class FontPickerDialog(NvimPopup):
             self._updating_ui = False
 
     def _on_target_button_clicked(self, button):
-        """Show NvimContextMenu for target selection."""
+        """Show context menu for target selection."""
+        # Create menu items in the correct format
         items = [{"label": label, "action": key} for key, label in self.TARGETS]
-        self._sub_popup = show_context_menu(
-            parent=self,
+
+        # Get parent window
+        parent_window = self.get_transient_for() or self.get_root()
+
+        menu = show_context_menu(
+            parent=parent_window,
             items=items,
             on_select=self._on_target_selected,
             source_widget=self._target_button,
             title="Apply to",
         )
-        if self._sub_popup:
-            self._sub_popup.connect("close-request", self._on_sub_popup_closing)
+
+        if menu:
+            self._sub_popup = menu
+
+            # Connect to the appropriate signal based on popup type
+            from popups.nvim_popup import NvimPopup
+
+            if isinstance(menu, NvimPopup):
+                menu.connect("close-request", self._on_sub_popup_closing)
+            else:
+                # SystemContextMenu (Gtk.Popover) uses "closed" signal
+                menu.connect("closed", self._on_sub_popup_closing)
 
     def _on_target_selected(self, action):
         """Handle target selection from context menu."""
-        self._sub_popup = None
+        # Don't clear _sub_popup here - let the close signal handler do it
         for i, (key, label) in enumerate(self.TARGETS):
             if key == action:
                 self._selected_target_idx = i
@@ -314,9 +329,18 @@ class FontPickerDialog(NvimPopup):
 
     def _on_sub_popup_closing(self, *args):
         """Handle sub-popup closing — clear reference and restore focus."""
-        self._sub_popup = None
         if not self._closing:
-            GLib.idle_add(lambda: self.search_entry.grab_focus() if not self._closing else None or False)
+            # Delay clearing _sub_popup until after focus is restored to prevent race condition
+            GLib.idle_add(self._restore_focus_and_clear_sub_popup)
+        else:
+            self._sub_popup = None
+        return False
+
+    def _restore_focus_and_clear_sub_popup(self):
+        """Restore focus to search entry and clear sub-popup reference."""
+        if not self._closing:
+            self.search_entry.grab_focus()
+        self._sub_popup = None
         return False
 
     def _on_search_changed(self, entry):
@@ -394,9 +418,19 @@ class FontPickerDialog(NvimPopup):
 
     def _on_focus_leave(self, controller):
         """Override to prevent close when dropdown/spinbutton popovers take focus."""
-        if self._sub_popup is not None:
-            return
-        GLib.timeout_add(_FOCUS_CHECK_DELAY_MS, self._check_focus_and_close)
+        # For font picker, we never auto-close on focus leave - only on ESC or button clicks
+        # This prevents issues with the "Apply to" dropdown
+        return
+
+    def _on_active_changed(self, window, pspec):
+        """Override to prevent auto-close when window loses active state."""
+        # Don't auto-close for font picker - only manual close via buttons/ESC
+        return
+
+    def _check_active_and_close(self):
+        """Override to prevent delayed close on inactive state."""
+        # Don't auto-close for font picker
+        return False
 
     def _check_focus_and_close(self):
         """Close only if focus has truly left this dialog."""
@@ -455,6 +489,21 @@ class FontPickerDialog(NvimPopup):
             new_pos = max(0, min(n_items - 1, current + delta))
         self._selection_model.set_selected(new_pos)
         self.font_list.scroll_to(new_pos, Gtk.ListScrollFlags.NONE, None)
+
+    # Font popup fix: Override all auto-closing mechanisms to prevent
+    # dialog from closing when "Apply to" combo box is clicked
+
+    def _on_focus_leave(self):
+        """Override to prevent auto-closing on focus leave."""
+        return
+
+    def _on_active_changed(self, window, active):
+        """Override to prevent auto-closing on active state change."""
+        return
+
+    def _check_active_and_close(self):
+        """Override to prevent delayed auto-closing."""
+        return
 
 
 class FontItem(GObject.Object):

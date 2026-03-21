@@ -2,8 +2,8 @@
 
 **Created_at:** 2026-03-10  
 **Updated_at:** 2026-03-16  
-**Status:** Active  
-**Goal:** Provide a step-by-step checklist for diagnosing why AI chat responses fail to render.  
+**Status:** Superseded — rendering pipeline replaced by VTE terminal, see [2026_03_21_ai_terminal.md](2026_03_21_ai_terminal.md)
+**Goal:** Provide a step-by-step checklist for diagnosing why AI chat responses fail to render.
 **Scope:** `src/ai/ai_chat_terminal.py`, `src/ai/system_tag_stripper.py`, `src/ai/terminal_markdown_renderer.py`, `src/ai/chat_canvas.py`  
 
 ---

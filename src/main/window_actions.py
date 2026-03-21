@@ -375,10 +375,6 @@ class WindowActionsMixin:
             tab.widget._canvas_widget.zoom(0.1)
             return
 
-        if self.editor_view._has_dev_pad_tab() and self.editor_view._is_dev_pad_active():
-            self._zoom_dev_pad(1)
-            return
-
         from constants import MAX_FONT_SIZE
 
         self._font_size = min(self._font_size + 1, MAX_FONT_SIZE)
@@ -390,10 +386,6 @@ class WindowActionsMixin:
         tab = self.editor_view._get_current_tab()
         if getattr(tab, "_is_sketch", False):
             tab.widget._canvas_widget.zoom(-0.1)
-            return
-
-        if self.editor_view._has_dev_pad_tab() and self.editor_view._is_dev_pad_active():
-            self._zoom_dev_pad(-1)
             return
 
         from constants import MIN_FONT_SIZE

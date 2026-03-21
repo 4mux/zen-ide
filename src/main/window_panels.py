@@ -203,8 +203,14 @@ class WindowPanelsMixin:
             animate_paned(self.main_paned, DEFAULT_TREE_WIDTH)
 
         window_height = self.get_height()
-        # Collapse editor if no tabs are open
-        if hasattr(self, "editor_view") and not self.editor_view.tabs:
+        # Collapse editor if no tabs are open (only if auto_expand_terminals is enabled)
+        from shared.settings.settings_manager import get_setting
+
+        if (
+            hasattr(self, "editor_view")
+            and not self.editor_view.tabs
+            and get_setting("behavior.auto_expand_terminals", True)
+        ):
             animate_paned(self.right_paned, 0, on_done=self._sync_terminal_resize)
             self._editor_collapsed = True
         elif self.right_paned.get_position() < 50:
@@ -238,19 +244,26 @@ class WindowPanelsMixin:
 
         # Apply positions with animation
         animate_paned(self.main_paned, DEFAULT_TREE_WIDTH)
-        # Collapse editor if no tabs and no welcome/dev-pad screen
+        # Collapse editor if no tabs and no welcome/dev-pad screen (only if auto_expand_terminals is enabled)
+        from shared.settings.settings_manager import get_setting
+
         if (
             hasattr(self, "editor_view")
             and not self.editor_view.tabs
             and not self._has_welcome_screen()
             and not self._has_dev_pad_tab()
+            and get_setting("behavior.auto_expand_terminals", True)
         ):
             animate_paned(self.right_paned, 0)
             self._editor_collapsed = True
         else:
             animate_paned(self.right_paned, editor_height)
             self._editor_collapsed = False
-        animate_paned(self.bottom_paned, ai_chat_width, on_done=self._sync_terminal_resize)
+        # Only reset bottom panel proportions if auto_expand_terminals is enabled
+        from shared.settings.settings_manager import get_setting
+
+        if get_setting("behavior.auto_expand_terminals", True):
+            animate_paned(self.bottom_paned, ai_chat_width, on_done=self._sync_terminal_resize)
 
         return False  # Don't repeat
 
@@ -267,12 +280,15 @@ class WindowPanelsMixin:
         if "main" in saved:
             animate_paned(self.main_paned, saved["main"])
         if "right" in saved:
-            # Collapse editor if no tabs and no welcome/dev-pad screen
+            # Collapse editor if no tabs and no welcome/dev-pad screen (only if auto_expand_terminals is enabled)
+            from shared.settings.settings_manager import get_setting
+
             if (
                 hasattr(self, "editor_view")
                 and not self.editor_view.tabs
                 and not self._has_welcome_screen()
                 and not self._has_dev_pad_tab()
+                and get_setting("behavior.auto_expand_terminals", True)
             ):
                 animate_paned(self.right_paned, 0)
                 self._editor_collapsed = True
@@ -280,7 +296,13 @@ class WindowPanelsMixin:
                 animate_paned(self.right_paned, saved["right"])
                 self._editor_collapsed = False
         if "bottom" in saved:
-            # When AI is disabled, force position to 0 so terminal fills the space
-            target = 0 if not ai_enabled else saved["bottom"]
-            animate_paned(self.bottom_paned, target, on_done=self._sync_terminal_resize)
+            # Only restore saved bottom position if auto_expand_terminals is enabled
+            from shared.settings.settings_manager import get_setting
+
+            if get_setting("behavior.auto_expand_terminals", True):
+                # When AI is disabled, force position to 0 so terminal fills the space
+                target = 0 if not ai_enabled else saved["bottom"]
+                animate_paned(self.bottom_paned, target, on_done=self._sync_terminal_resize)
+            # If auto_expand_terminals is False, don't restore saved position
+            # (keep whatever position the panel currently has)
         return False  # Don't repeat

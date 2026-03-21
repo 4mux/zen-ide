@@ -30,7 +30,7 @@ make install      # Install dependencies with uv
 - saved files appear on the tree
 - integrated terminal unix like
 - markdown files open in split view with live preview
-- AI inline autosuggestion (ghost text completions)
+- AI inline autosuggestion (ghost text completions)\n- AI context injection — injects current file, open tabs, git info, diagnostics into AI system prompt (configurable via `ai.context_injection.*`)
 - Active file state exported for external AI tools
 - Dev Pad - activity tracking panel with split view alongside editor (Cmd+.)
 - Sketch Pad - ASCII drawing tool, opens .zen_sketch files in editor (Cmd+Shift+D) (see [docs/2026_02_15_sketch_pad.md](docs/2026_02_15_sketch_pad.md))

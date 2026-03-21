@@ -1,12 +1,12 @@
 # AI Chat System Architecture
 
 **Created_at:** 2026-03-15
-**Updated_at:** 2026-03-20
-**Status:** Superseded — see [Zen AI Strategy](2026_01_22_ai_strategy.md) for the canonical, up-to-date reference
+**Updated_at:** 2026-03-21
+**Status:** Superseded — see [AI Terminal](2026_03_21_ai_terminal.md) for the current system
 **Goal:** Document the full architecture, data flow, and component interactions of the AI chat system
 **Scope:** `src/ai/` (all 16 modules, ~8,040 LOC)
 
-> **Note:** This document references CLI-based providers (ClaudeCLIProvider, CopilotCLIProvider, PTYCLIProvider) that have been replaced by direct HTTP providers. The canonical documentation is in [2026_01_22_ai_strategy.md](2026_01_22_ai_strategy.md), which covers the current HTTP-only architecture, safety mechanisms (retries, context truncation, token limits), and all configurable settings.
+> **Superseded:** This entire document describes the old AI chat system which has been replaced by the VTE-based AI Terminal. All components described below (ChatCanvas, AnsiBuffer, BlockCursorTextView, AIChatTerminalView, CLI providers, PTY provider, system tag stripper, process tracker) have been deleted. See [2026_03_21_ai_terminal.md](2026_03_21_ai_terminal.md) for the current architecture.
 
 ---
 

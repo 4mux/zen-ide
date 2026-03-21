@@ -2,9 +2,9 @@
 
 **Created_at:** 2026-03-17  
 **Updated_at:** 2026-03-17  
-**Status:** Planned  
-**Goal:** Put the machine to standby automatically after an AI task finishes  
-**Scope:** `src/ai/ai_chat_terminal.py`, `src/ai/ai_chat_tabs.py`, `src/shared/settings/default_settings.py`, `src/main/status_bar.py`  
+**Status:** Planned (needs update — references deleted files)
+**Goal:** Put the machine to standby automatically after an AI task finishes
+**Scope:** `src/ai/ai_terminal_view.py`, `src/ai/ai_terminal_stack.py`, `src/shared/settings/default_settings.py`, `src/main/status_bar.py`  
 
 ---
 

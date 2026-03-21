@@ -38,18 +38,12 @@ DEFAULT_SETTINGS = {
     },
     "ai": {
         "is_enabled": True,  # Master toggle — when False, hides AI chat and disables inline suggestions
-        "provider": "",  # "", "anthropic_api", "copilot_api" - empty means auto-detect
+        "provider": "",  # "", "claude_cli", "copilot_cli" — empty means auto-detect (prefers claude)
         "show_inline_suggestions": True,  # Enable AI ghost text inline suggestions
         "yolo_mode": True,  # When True: no tool-use limit (unlimited iterations). When False: stops after 25 tool calls and asks to continue.
-        "model": {
-            "anthropic_api": "claude-sonnet-4-20250514",
-            "copilot_api": "claude-sonnet-4",
-        },
-        "context_truncation": True,  # Truncate old tool results in long agentic sessions to reduce token cost
-        "auto_scroll_on_output": True,  # Auto-scroll chat to bottom while AI streams a response
         "inline_completion": {
-            "trigger_delay_ms": 200,  # Debounce delay before requesting a completion
-            "model": "gpt-4.1",  # Model for inline completions — use fastest available
+            "trigger_delay_ms": 500,  # Debounce delay before requesting a completion
+            "model": "gpt-4.1-mini",  # Model for inline completions — use cheapest capable model
         },
     },
     "treeview": {
@@ -72,6 +66,7 @@ DEFAULT_SETTINGS = {
         "last_file": "",
         "open_files": [],
         "workspace_file": "",
+        "dev_pad_open": False,
     },
     "popup": {
         "border_radius": 0,  # Border radius for popup windows (0 = sharp corners)

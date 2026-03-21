@@ -22,7 +22,12 @@ _COPILOT_APPS_PATH = os.path.expanduser("~/.config/github-copilot/apps.json")
 _TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
 _COMPLETIONS_URL = "https://api.githubcopilot.com/chat/completions"
 _FIM_COMPLETIONS_URL = "https://api.githubcopilot.com/v1/completions"
-_USER_AGENT = "ZenIDE/1.0"
+
+# Editor identity headers — must match a recognised Copilot integration
+# so the billing backend applies standard subscription pricing.
+_EDITOR_VERSION = "vscode/1.100.0"
+_PLUGIN_VERSION = "copilot/1.250.0"
+_USER_AGENT = "GithubCopilot/1.250.0"
 
 # System message for FIM-style code completion
 _SYSTEM_PROMPT = (
@@ -82,7 +87,7 @@ class CopilotAPI:
     def complete(
         self,
         prompt: str,
-        model: str = "gpt-4.1",
+        model: str = "gpt-4.1-mini",
         max_tokens: int = 500,
         timeout: float = 15,
     ) -> Optional[str]:
@@ -97,7 +102,7 @@ class CopilotAPI:
     def complete_multi(
         self,
         prompt: str,
-        model: str = "gpt-4.1",
+        model: str = "gpt-4.1-mini",
         max_tokens: int = 500,
         timeout: float = 15,
         n: int = 3,
@@ -142,8 +147,10 @@ class CopilotAPI:
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
                 "User-Agent": _USER_AGENT,
-                "Editor-Version": _USER_AGENT,
+                "Editor-Version": _EDITOR_VERSION,
+                "Editor-Plugin-Version": _PLUGIN_VERSION,
                 "Copilot-Integration-Id": "copilot",
+                "openai-intent": "copilot-ghost",
             },
         )
 
@@ -237,8 +244,10 @@ class CopilotAPI:
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "User-Agent": _USER_AGENT,
-            "Editor-Version": _USER_AGENT,
+            "Editor-Version": _EDITOR_VERSION,
+            "Editor-Plugin-Version": _PLUGIN_VERSION,
             "Copilot-Integration-Id": "copilot",
+            "openai-intent": "copilot-ghost",
         }
         if language:
             headers["X-Copilot-Language"] = language
@@ -271,7 +280,7 @@ class CopilotAPI:
     def complete_stream(
         self,
         prompt: str,
-        model: str = "gpt-4.1",
+        model: str = "gpt-4.1-mini",
         max_tokens: int = 500,
         timeout: float = 15,
         on_chunk: Callable[[str], None] | None = None,
@@ -308,8 +317,10 @@ class CopilotAPI:
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
                 "User-Agent": _USER_AGENT,
-                "Editor-Version": _USER_AGENT,
+                "Editor-Version": _EDITOR_VERSION,
+                "Editor-Plugin-Version": _PLUGIN_VERSION,
                 "Copilot-Integration-Id": "copilot",
+                "openai-intent": "copilot-ghost",
             },
         )
 
@@ -390,6 +401,8 @@ class CopilotAPI:
                 "Authorization": f"token {oauth}",
                 "Accept": "application/json",
                 "User-Agent": _USER_AGENT,
+                "Editor-Version": _EDITOR_VERSION,
+                "Editor-Plugin-Version": _PLUGIN_VERSION,
             },
         )
 

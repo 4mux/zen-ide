@@ -41,6 +41,10 @@ class WindowFontsMixin:
         # Update treeview font
         self._apply_treeview_font()
 
+        # Update dev pad font (mirrors editor font)
+        if hasattr(self, "dev_pad") and self.dev_pad:
+            self.dev_pad.apply_font_settings()
+
     def _apply_terminal_font(self):
         """Apply font settings to terminal."""
         if not hasattr(self, "terminal_view") or not self.terminal_view:
@@ -81,26 +85,13 @@ class WindowFontsMixin:
         elif component == "explorer":
             self._apply_treeview_font()
         elif component == "ai_chat":
-            # AI chat font refresh - AIChatTabs uses update_font()
+            # AI terminal font refresh - uses update_font() which also refreshes the header
             if hasattr(self, "ai_chat") and self.ai_chat:
                 if hasattr(self.ai_chat, "update_font"):
                     self.ai_chat.update_font()
-                elif hasattr(self.ai_chat, "apply_font_settings"):
-                    self.ai_chat.apply_font_settings()
         elif component == "dev_pad":
             if hasattr(self, "dev_pad") and self.dev_pad:
                 self.dev_pad.apply_font_settings()
-
-    def _zoom_dev_pad(self, delta: int):
-        """Zoom dev pad font size by delta."""
-        from constants import MAX_FONT_SIZE, MIN_FONT_SIZE
-        from fonts import get_font_settings, set_font_settings
-
-        current = get_font_settings("dev_pad").get("size", 16)
-        new_size = max(MIN_FONT_SIZE, min(current + delta, MAX_FONT_SIZE))
-        set_font_settings("dev_pad", size=new_size)
-        if hasattr(self, "dev_pad") and self.dev_pad:
-            self.dev_pad.apply_font_settings()
 
     def _zoom_markdown_previews(self, direction):
         """Apply zoom to all open markdown previews."""

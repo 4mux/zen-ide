@@ -83,6 +83,7 @@ def load_settings() -> dict:
 
     _ensure_settings_dir()
     _file_settings = None
+    _file_was_corrupt = False
 
     if os.path.exists(SETTINGS_FILE):
         try:
@@ -90,11 +91,14 @@ def load_settings() -> dict:
                 _file_settings = json.load(f)
         except json.JSONDecodeError as e:
             _backup_invalid_settings(SETTINGS_FILE, e)
+            _file_was_corrupt = True
         except IOError:
             pass
 
-    if _file_settings is None:
-        # Try restoring from last known good backup before falling back to defaults
+    if _file_settings is None and _file_was_corrupt:
+        # Only restore from backup when the settings file existed but was corrupt.
+        # If the file was simply missing (e.g., user deleted it to reset), fall
+        # through to defaults instead of resurrecting a stale backup.
         if os.path.exists(SETTINGS_BACKUP):
             try:
                 with open(SETTINGS_BACKUP, "r") as f:
@@ -109,19 +113,40 @@ def load_settings() -> dict:
     if _file_settings is None:
         import copy
 
+        # Remove stale backup so it can never be resurrected on a future corrupt load
+        if os.path.exists(SETTINGS_BACKUP):
+            try:
+                os.unlink(SETTINGS_BACKUP)
+            except OSError:
+                pass
+
         _file_settings = copy.deepcopy(DEFAULT_SETTINGS)
         _settings = copy.deepcopy(DEFAULT_SETTINGS)
         save_settings()  # Create settings.json with defaults
     else:
         migrated = _migrate_editor_fonts(_file_settings)
+        # Reconcile: ensure all default top-level sections and their sub-keys
+        # exist in file settings so users always see the full settings schema.
+        import copy as _copy
+
+        needs_save = migrated
+        for key, default_val in DEFAULT_SETTINGS.items():
+            if key not in _file_settings:
+                _file_settings[key] = _copy.deepcopy(default_val)
+                needs_save = True
+            elif isinstance(default_val, dict) and isinstance(_file_settings[key], dict):
+                for sub_key, sub_val in default_val.items():
+                    if sub_key not in _file_settings[key]:
+                        _file_settings[key][sub_key] = _copy.deepcopy(sub_val)
+                        needs_save = True
         _settings = _deep_merge(DEFAULT_SETTINGS.copy(), _file_settings)
-        if migrated:
-            save_settings()  # Persist migration
+        if needs_save:
+            save_settings(_skip_backup=True)
 
     return _settings
 
 
-def save_settings():
+def save_settings(_skip_backup: bool = False):
     """
     Save current settings to file using atomic write.
 
@@ -130,7 +155,7 @@ def save_settings():
     2. Write to temp file in same directory
     3. Sync to disk (fsync)
     4. Atomically rename temp to target
-    5. Backup old file before overwrite
+    5. Backup old file before overwrite (unless _skip_backup is True)
     """
     global _settings, _file_settings, _pending_changes
 
@@ -156,8 +181,9 @@ def save_settings():
                 f.flush()
                 os.fsync(f.fileno())  # Step 3: Ensure data is on disk
 
-            # Step 4: Backup existing file if it exists
-            if os.path.exists(SETTINGS_FILE):
+            # Step 4: Backup existing file if it exists (skip during reconciliation
+            # to avoid clobbering a valid backup with stale pre-reconciliation data)
+            if not _skip_backup and os.path.exists(SETTINGS_FILE):
                 try:
                     # Copy to backup (don't rename - we want to keep original until new is ready)
                     with open(SETTINGS_FILE, "r") as src:

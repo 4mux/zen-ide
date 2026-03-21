@@ -2,8 +2,8 @@
 
 **Created_at:** 2026-03-07  
 **Updated_at:** 2026-03-08  
-**Status:** In Progress  
-**Goal:** Stabilize AI chat scroll behavior by centralizing scroll authority and improving resize handling  
+**Status:** Superseded — ChatCanvas replaced by VTE terminal, see [2026_03_21_ai_terminal.md](2026_03_21_ai_terminal.md)
+**Goal:** Stabilize AI chat scroll behavior by centralizing scroll authority and improving resize handling
 **Scope:** `src/ai/chat_canvas.py`, `src/ai/ai_chat_terminal.py`, `src/ai/ai_chat_tabs.py`, `src/ai/terminal_markdown_renderer.py`  
 
 ---

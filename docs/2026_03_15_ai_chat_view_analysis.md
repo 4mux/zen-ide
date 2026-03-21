@@ -2,8 +2,8 @@
 
 **Created_at:** 2026-03-15  
 **Updated_at:** 2026-03-15  
-**Status:** In Progress  
-**Goal:** Identify and catalog all bugs, regressions, and UX issues in the AI chat view  
+**Status:** Superseded — old chat view replaced by VTE terminal, see [2026_03_21_ai_terminal.md](2026_03_21_ai_terminal.md)
+**Goal:** Identify and catalog all bugs, regressions, and UX issues in the AI chat view
 **Scope:** `src/ai/ai_chat_terminal.py`, `src/ai/ai_chat_tabs.py`, `src/ai/chat_canvas.py`, `src/ai/ansi_buffer.py`, `src/ai/terminal_markdown_renderer.py`, `src/ai/system_tag_stripper.py`  
 
 ---

@@ -34,8 +34,8 @@ class CompletionContext:
 
 
 # Max characters to include in prefix/suffix — large enough for FIM context
-_MAX_PREFIX_CHARS = 3000
-_MAX_SUFFIX_CHARS = 1500
+_MAX_PREFIX_CHARS = 1500
+_MAX_SUFFIX_CHARS = 500
 
 # Cross-file context limits
 _MAX_SNIPPET_CHARS = 300

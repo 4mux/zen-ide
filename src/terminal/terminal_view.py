@@ -316,7 +316,7 @@ class TerminalView(
     def _get_wheel_step_pixels(self) -> float:
         """Return per-notch wheel movement in pixels (kept in line with app scroll speed)."""
         speed = float(get_setting("scroll_speed", 0.4))
-        return max(1.0, 15.0 * speed)
+        return max(1.0, 60.0 * speed)
 
     def _get_touchpad_step_pixels(self) -> float:
         """Return per-delta touchpad movement in pixels (match other scrollable views)."""

@@ -2,8 +2,9 @@
 
 import textwrap
 
-from ai import ai_chat_terminal as ai_chat_terminal_module
 from ai.ai_chat_terminal import AIChatTerminalView, _hex_to_ansi_fg
+
+from ai import ai_chat_terminal as ai_chat_terminal_module
 
 
 class TestHexToAnsiFg:

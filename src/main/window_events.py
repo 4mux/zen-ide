@@ -198,7 +198,11 @@ class WindowEventsMixin:
         # Don't collapse if welcome screen is still displayed
         if self._has_welcome_screen():
             return
-        self._collapse_editor()
+        # Only collapse editor if auto_expand_terminals is enabled
+        from shared.settings import get_setting
+
+        if get_setting("behavior.auto_expand_terminals", True):
+            self._collapse_editor()
 
     def _collapse_editor(self):
         """Collapse editor to 0 height, letting bottom panels fill the space."""
@@ -224,24 +228,31 @@ class WindowEventsMixin:
         # Apply default layout: 65% editor, 35% bottom panels
         window_height = self.get_height()
         editor_height = int(window_height * 0.65)
-        # Reset bottom panels to default proportions if enabled
-        from shared.settings import get_setting
+
         from shared.utils import animate_paned
 
-        if get_setting("behavior.auto_expand_terminals", True):
-            from constants import DEFAULT_TREE_WIDTH
-
-            ai_enabled = getattr(self, "_ai_enabled", True)
-            window_width = self.get_width()
-            bottom_panel_width = window_width - DEFAULT_TREE_WIDTH
-            ai_chat_width = bottom_panel_width // 2 if ai_enabled else 0
-            if self._bottom_panels_created:
-                if ai_enabled:
-                    self.ai_chat.set_visible(True)
-                self.terminal_view.set_visible(True)
-            animate_paned(self.bottom_paned, ai_chat_width)
-
         animate_paned(self.right_paned, editor_height, on_done=self._sync_terminal_resize)
+
+        # Only reset bottom panels to default proportions if auto_expand_terminals is enabled
+        from shared.settings import get_setting
+
+        if get_setting("behavior.auto_expand_terminals", True):
+            self._auto_expand_terminals()
+
+    def _auto_expand_terminals(self):
+        """Reset bottom panels to default proportions - only called when auto_expand_terminals is enabled."""
+        from constants import DEFAULT_TREE_WIDTH
+        from shared.utils import animate_paned
+
+        ai_enabled = getattr(self, "_ai_enabled", True)
+        window_width = self.get_width()
+        bottom_panel_width = window_width - DEFAULT_TREE_WIDTH
+        ai_chat_width = bottom_panel_width // 2 if ai_enabled else 0
+        if self._bottom_panels_created:
+            if ai_enabled:
+                self.ai_chat.set_visible(True)
+            self.terminal_view.set_visible(True)
+        animate_paned(self.bottom_paned, ai_chat_width)
 
     def _on_cursor_position_changed(self, line: int, col: int, total_lines: int):
         """Handle cursor position change from editor."""

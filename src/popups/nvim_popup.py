@@ -224,6 +224,7 @@ class NvimPopup(Gtk.Window):
         self._ns_window = None  # macOS NSWindow reference (set on first present)
         self._parent_ns_window = None  # parent's NSWindow (for focus restore)
         self._macos_click_monitor = None  # NSEvent monitor for click-outside
+        self._linux_popover = None  # Gtk.Popover used for anchor positioning on Linux
 
         # Half the title label height — used to push the frame down
         # so the title straddles the border (half inside, half outside)
@@ -423,6 +424,19 @@ class NvimPopup(Gtk.Window):
             /* Remove all border-radius from child elements */
             window.nvim-popup-window * {{
                 border-radius: {border_radius}px;
+            }}
+
+            /* Linux popover for anchor positioning — transparent chrome */
+            popover.nvim-popup-popover,
+            popover.nvim-popup-popover > contents {{
+                background: transparent;
+                background-color: transparent;
+                border: none;
+                box-shadow: none;
+                padding: 0;
+                margin: 0;
+                min-height: 0;
+                min-width: 0;
             }}
 
             /* Frame — no CSS border; border drawn by GtkSnapshot overlay */
@@ -858,10 +872,20 @@ class NvimPopup(Gtk.Window):
         GLib.timeout_add(150, self._check_active_and_close)
 
     def _check_active_and_close(self):
-        """Close if the popup is still inactive after the delay."""
+        """Close if the popup is still inactive after the delay.
+
+        Only close when the *parent* window is active — that means the user
+        clicked on the parent (i.e. "clicked outside" the popup).  If both
+        the popup and the parent are inactive the user switched to a
+        different application and the popup should stay open.
+        """
         if self._closing:
             return False
         if self.get_property("is-active"):
+            return False
+        # If the parent window is also inactive, the user switched apps —
+        # don't dismiss the popup.
+        if self._parent and not self._parent.is_active():
             return False
         self._result = None
         self.close()
@@ -949,6 +973,18 @@ class NvimPopup(Gtk.Window):
         """
         if self._closing:
             return
+        if self._linux_popover:
+            if not self._steal_focus:
+                self._linux_popover.popdown()
+                return
+            self._closing = True
+            if self._theme_change_cb:
+                unsubscribe_theme_change(self._theme_change_cb)
+                self._theme_change_cb = None
+            self._linux_popover.popdown()
+            self._linux_popover.unparent()
+            self._linux_popover = None
+            return
         if not self._steal_focus:
             self.set_visible(False)
             return
@@ -969,6 +1005,17 @@ class NvimPopup(Gtk.Window):
         if self._width > 0:
             self.set_default_size(self._width, self._height if self._height > 0 else -1)
 
+        # Re-show existing Linux popover
+        if self._linux_popover:
+            if self._anchor_rect:
+                self._linux_popover.set_pointing_to(self._anchor_rect)
+            self._linux_popover.popup()
+            if not self._steal_focus:
+                from gi.repository import GLib
+
+                GLib.idle_add(self._restore_parent_focus)
+            return
+
         # Capture parent's NSWindow before presenting — needed for both
         # anchor positioning (coordinate conversion) and focus restore.
         if _IS_MACOS and (not self._steal_focus or self._anchor_widget):
@@ -978,6 +1025,14 @@ class NvimPopup(Gtk.Window):
                 self._parent_ns_window = NSApp.keyWindow()
             except Exception:
                 self._parent_ns_window = None
+
+        # On Linux, use Gtk.Popover for anchor-positioned popups.
+        # Gtk.Window cannot be positioned on Wayland (no API), and X11
+        # XMoveWindow has timing issues.  Gtk.Popover uses xdg_popup on
+        # Wayland and works reliably on both X11 and Wayland.
+        if not _IS_MACOS and self._anchor_widget and self._anchor_rect:
+            self._present_via_popover()
+            return
 
         super().present()
         self._center_on_parent()
@@ -1014,6 +1069,9 @@ class NvimPopup(Gtk.Window):
 
     def popdown(self):
         """Hide the popup without destroying it."""
+        if self._linux_popover:
+            self._linux_popover.popdown()
+            return
         self.set_visible(False)
 
     def set_anchor_rect(self, rect: Gdk.Rectangle):
@@ -1023,12 +1081,63 @@ class NvimPopup(Gtk.Window):
             rect: Rectangle relative to anchor_widget (x, y, width, height)
         """
         self._anchor_rect = rect
+        if self._linux_popover:
+            self._linux_popover.set_pointing_to(rect)
+
+    def _present_via_popover(self):
+        """Present popup content via Gtk.Popover on Linux.
+
+        Gtk.Window cannot be reliably positioned on Wayland (no API) and X11
+        XMoveWindow has timing issues.  Gtk.Popover creates an xdg_popup
+        surface on Wayland which supports precise positioning, and works
+        correctly on X11 as well.
+        """
+        content = self.get_child()
+        if not content:
+            return
+
+        # Detach content from the Window and move it into the Popover
+        self.set_child(None)
+        if self._width > 0:
+            content.set_size_request(self._width, self._height if self._height > 0 else -1)
+
+        popover = Gtk.Popover()
+        popover.set_parent(self._anchor_widget)
+        popover.set_pointing_to(self._anchor_rect)
+        popover.set_has_arrow(False)
+        popover.set_autohide(self._steal_focus)
+        popover.set_child(content)
+        popover.add_css_class("nvim-popup-popover")
+
+        # Keyboard handling — mirror the controller attached to the Window
+        if self._steal_focus:
+            key_controller = Gtk.EventControllerKey()
+            key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            key_controller.connect("key-pressed", self._on_key_pressed)
+            popover.add_controller(key_controller)
+
+        popover.connect("closed", self._on_popover_closed)
+
+        self._linux_popover = popover
+        popover.popup()
+
+        if not self._steal_focus:
+            from gi.repository import GLib
+
+            GLib.idle_add(self._restore_parent_focus)
+
+    def _on_popover_closed(self, popover):
+        """Handle Gtk.Popover closed signal (autohide click-outside)."""
+        if self._closing:
+            return
+        self._result = None
+        self.close()
 
     def _position_at_anchor(self):
         """Reposition the popup relative to anchor_widget + anchor_rect."""
         if not self._anchor_widget or not self._anchor_rect:
             return False
-
+        # Linux anchor positioning is handled via Gtk.Popover
         if _IS_MACOS:
             self._macos_position_at_anchor()
         return False

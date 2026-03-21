@@ -1,10 +1,12 @@
 # AI Inline Code Completion
 
-**Created_at:** 2026-03-04  
-**Updated_at:** 2026-03-08  
-**Status:** Active  
-**Goal:** Implement inline ghost text AI code completions with streaming and multi-line support  
-**Scope:** `src/editor/inline_completion/`, `src/ai/providers`  
+**Created_at:** 2026-03-04
+**Updated_at:** 2026-03-21
+**Status:** Partially superseded
+**Goal:** Implement inline ghost text AI code completions with streaming and multi-line support
+**Scope:** `src/editor/inline_completion/`
+
+> **Note (2026-03-21):** The inline completion system is still active and uses the Copilot HTTP API (`src/editor/inline_completion/copilot_api.py`). However, references to CLI-based providers (`src/ai/claude_cli_provider.py`, `src/ai/copilot_cli_provider.py`, `src/ai/pty_cli_provider.py`) in this doc are outdated — those files have been deleted. The AI chat system now uses a VTE terminal running CLIs directly; see [2026_03_21_ai_terminal.md](2026_03_21_ai_terminal.md).  
 
 ---
 

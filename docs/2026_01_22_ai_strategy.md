@@ -1,16 +1,18 @@
 # Zen AI Strategy
 
 **Created_at:** 2026-01-22
-**Updated_at:** 2026-03-20
-**Status:** Active
+**Updated_at:** 2026-03-21
+**Status:** Superseded
 **Goal:** Document how Zen IDE AI chat works — HTTP providers, tool use, safety mechanisms, rendering
 **Scope:** `src/ai/`
 
+> **Superseded:** This document describes the old HTTP-streaming architecture which has been fully replaced by the VTE-based AI Terminal. See [2026_03_21_ai_terminal.md](2026_03_21_ai_terminal.md) for the current system. The HTTP providers, custom rendering pipeline, tool executor, and context management described below have all been deleted. The inline completion system (Copilot HTTP API for ghost-text) is still active and documented in the new doc.
+
 ---
 
-## Overview
+## Overview (Historical)
 
-Zen IDE's AI chat is an **agentic coding assistant** built into the IDE. It communicates with AI providers via **direct HTTP API calls** (no CLI tools, no subprocesses, no Node.js). The assistant can read/write/edit files, search code, and run shell commands through a tool-use loop.
+Zen IDE's AI chat was an **agentic coding assistant** built into the IDE. It communicated with AI providers via **direct HTTP API calls** (no CLI tools, no subprocesses, no Node.js). The assistant could read/write/edit files, search code, and run shell commands through a tool-use loop.
 
 ### Key Design Decisions
 
@@ -85,13 +87,29 @@ api_messages.append({"role": "user", "content": current_message})
 
 Each message is a properly structured `{"role", "content"}` dict — no flattened text, no context duplication.
 
-### 4. Context truncation
+### 4. Context injection
+
+On the **initial request** (not tool-use continuations), the system prompt is enriched with workspace context gathered by `context_injector.py`. This gives the model the same starting knowledge that VS Code provides to Copilot — avoiding 3-5 tool calls just to orient itself.
+
+Injected context (each individually configurable via `ai.context_injection.*`):
+
+| Source | Setting | Content | Max size |
+|--------|---------|---------|----------|
+| Current file | `current_file` | Full file contents | 20K chars |
+| Open tabs | `open_tabs` | List of open editor file paths | 2K chars |
+| Git info | `git_info` | Branch, modified files, `git diff --stat` | 10K chars |
+| Diagnostics | `diagnostics` | Current errors and warnings (up to 30) | 3K chars |
+| Workspace tree | `workspace_tree` | Directory listing (depth 2) | 5K chars |
+
+**Cost optimisation**: Context injection runs only on the first API request per user message. Tool-use continuation rounds and auto-continue rounds skip it — the model already has the context from round 1.
+
+### 5. Context truncation
 
 Before sending, the conversation passes through `context_truncation.truncate_conversation()`. This is applied on **both** the initial `send_message_stream()` call and every subsequent `continue_with_tool_results()` call — identically for Anthropic and Copilot providers.
 
 The truncation strategy (see [Context Truncation](#context-truncation) below) shortens tool results in the middle of the conversation and enforces a hard size cap, preventing token costs from growing quadratically with conversation length.
 
-### 5. HTTP provider streams the response
+### 6. HTTP provider streams the response
 
 The provider (e.g. `AnthropicHTTPProvider`) starts a background thread that:
 - POSTs to the API with `stream: True`
@@ -175,7 +193,7 @@ Implemented in `context_truncation.py`, applied identically by both providers on
 
 1. **Protected zones** — System prompt (index 0) and first user message (index 1) are always kept verbatim. The last 8 messages (`_KEEP_RECENT`) are kept verbatim for coherent continuation.
 2. **Tool result trimming** — Messages in the middle zone have their tool result content truncated to 200 chars with a `[...truncated for brevity]` marker. This covers `role: "tool"` messages (Copilot/OpenAI format) and `type: "tool_result"` blocks within `role: "user"` messages (Anthropic format).
-3. **Hard size cap** — If the total serialised conversation still exceeds `ai.max_context_chars` (default 500,000 chars, ~125K tokens), the oldest middle messages are progressively **dropped** and replaced with a single placeholder: `[Earlier conversation history was truncated to stay within context limits]`.
+3. **Hard size cap** — If the total serialised conversation still exceeds `ai.max_context_chars` (default 120,000 chars, ~30K tokens), the oldest middle messages are progressively **dropped** and replaced with a single placeholder: `[Earlier conversation history was truncated to stay within context limits]`.
 
 **When truncation is skipped**: Conversations shorter than 8 messages skip step 1–2 but still enforce the hard size cap (step 3).
 
@@ -217,7 +235,7 @@ The Copilot provider does not retry HTTP errors. Transient failures surface imme
 
 | Mode | Limit | Setting | Behaviour at limit |
 |------|-------|---------|-------------------|
-| Yolo mode (default) | 200 | `ai.max_tool_rounds` | `[Safety limit of N tool rounds reached — send 'continue' to resume]` |
+| Yolo mode (default) | 50 | `ai.max_tool_rounds` | `[Safety limit of N tool rounds reached — send 'continue' to resume]` |
 | Non-yolo mode | 25 | `_MAX_TOOL_ITERATIONS` (hardcoded) | `[Tool use limit reached — send 'continue' to resume]` |
 
 The counter (`_tool_iteration_count`) increments by the number of tool calls per round, not the number of API round-trips. This means a single round with 3 parallel tool calls counts as 3.
@@ -253,9 +271,14 @@ The inline completion system (`src/editor/inline_completion/`) has its own safeg
 | `ai.provider` | auto-detect | `"copilot_api"` or `"anthropic_api"` |
 | `ai.model` | provider default | Model name (per provider) |
 | `ai.yolo_mode` | `True` | Unlimited tool calls (up to safety ceiling) |
-| `ai.max_tool_rounds` | `200` | Hard ceiling on tool-use rounds in yolo mode |
+| `ai.max_tool_rounds` | `50` | Hard ceiling on tool-use rounds in yolo mode |
 | `ai.context_truncation` | `True` | Enable conversation truncation to reduce token cost |
-| `ai.max_context_chars` | `500000` | Hard cap on total serialised conversation size (chars). ~125K tokens. |
+| `ai.max_context_chars` | `120000` | Hard cap on total serialised conversation size (chars). ~30K tokens. |
+| `ai.context_injection.current_file` | `True` | Include current file contents in system prompt |
+| `ai.context_injection.open_tabs` | `True` | Include list of open editor tabs in system prompt |
+| `ai.context_injection.git_info` | `True` | Include git branch, status, and diff stat in system prompt |
+| `ai.context_injection.diagnostics` | `True` | Include current errors/warnings in system prompt |
+| `ai.context_injection.workspace_tree` | `False` | Include workspace directory structure (disabled — can be large) |
 | `ai.show_inline_suggestions` | `True` | Enable inline ghost-text completions |
 | `ai.auto_scroll_on_output` | `True` | Auto-scroll during streaming |
 | `ai.inline_completion.model` | `gpt-4.1` | Model for inline completions |
@@ -335,6 +358,7 @@ See `src/editor/inline_completion/` for details.
 | `src/ai/anthropic_http_provider.py` | Anthropic Messages API — streaming, thinking blocks, tool use, retries |
 | `src/ai/copilot_http_provider.py` | GitHub Copilot Chat API — OAuth, session tokens, streaming, tool use |
 | `src/ai/context_truncation.py` | Conversation truncation — tool result trimming + hard size cap |
+| `src/ai/context_injector.py` | Workspace context injection — gathers current file, open tabs, git, diagnostics for system prompt |
 | `src/ai/tool_definitions.py` | Provider-agnostic tool schemas with Anthropic/OpenAI converters |
 | `src/ai/tool_executor.py` | Executes tool calls (file I/O, grep, shell commands) |
 | `src/ai/chat_canvas.py` | DrawingArea renderer for ANSI-styled text (GtkSnapshot) |

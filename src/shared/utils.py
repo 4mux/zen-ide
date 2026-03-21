@@ -239,9 +239,21 @@ def find_word_boundary_right(text, pos):
 
 
 def hex_to_rgb(hex_color: str) -> tuple:
-    """Convert hex color to RGB tuple with ints in 0-255 range."""
+    """Convert hex color to RGB tuple with ints in 0-255 range.
+
+    Returns (38, 38, 38) for malformed input.
+    """
+    if not hex_color:
+        return (38, 38, 38)
+
     h = hex_color.lstrip("#")
-    return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
+    if len(h) != 6:
+        return (38, 38, 38)
+
+    try:
+        return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return (38, 38, 38)
 
 
 def hex_to_rgb_float(hex_color: str) -> tuple:
@@ -249,36 +261,72 @@ def hex_to_rgb_float(hex_color: str) -> tuple:
 
     Returns (0.15, 0.15, 0.15) for malformed input.
     """
+    if not hex_color:
+        return (0.15, 0.15, 0.15)
+
     h = hex_color.lstrip("#")
     if len(h) == 6:
-        return (
-            int(h[0:2], 16) / 255.0,
-            int(h[2:4], 16) / 255.0,
-            int(h[4:6], 16) / 255.0,
-        )
+        try:
+            return (
+                int(h[0:2], 16) / 255.0,
+                int(h[2:4], 16) / 255.0,
+                int(h[4:6], 16) / 255.0,
+            )
+        except ValueError:
+            return (0.15, 0.15, 0.15)
     return (0.15, 0.15, 0.15)
 
 
 def hex_to_rgba(hex_color: str, alpha: float = 1.0) -> tuple:
-    """Convert hex color to RGBA tuple with floats in 0-1 range."""
+    """Convert hex color to RGBA tuple with floats in 0-1 range.
+
+    Returns (0.15, 0.15, 0.15, alpha) for malformed input.
+    """
+    if not hex_color:
+        return (0.15, 0.15, 0.15, alpha)
+
     h = hex_color.lstrip("#")
-    r = int(h[0:2], 16) / 255.0
-    g = int(h[2:4], 16) / 255.0
-    b = int(h[4:6], 16) / 255.0
-    return (r, g, b, alpha)
+    if len(h) != 6:
+        return (0.15, 0.15, 0.15, alpha)
+
+    try:
+        r = int(h[0:2], 16) / 255.0
+        g = int(h[2:4], 16) / 255.0
+        b = int(h[4:6], 16) / 255.0
+        return (r, g, b, alpha)
+    except ValueError:
+        return (0.15, 0.15, 0.15, alpha)
 
 
 def hex_to_rgba_css(hex_color: str, alpha: float = 1.0) -> str:
-    """Convert hex color to CSS ``rgba(r, g, b, a)`` string."""
+    """Convert hex color to CSS ``rgba(r, g, b, a)`` string.
+
+    Returns a fallback gray color for malformed input.
+    """
+    if not hex_color:
+        return f"rgba(38, 38, 38, {alpha})"  # fallback gray
+
     h = hex_color.lstrip("#")
-    r = int(h[0:2], 16)
-    g = int(h[2:4], 16)
-    b = int(h[4:6], 16)
-    return f"rgba({r}, {g}, {b}, {alpha})"
+    if len(h) != 6:
+        return f"rgba(38, 38, 38, {alpha})"  # fallback gray
+
+    try:
+        r = int(h[0:2], 16)
+        g = int(h[2:4], 16)
+        b = int(h[4:6], 16)
+        return f"rgba({r}, {g}, {b}, {alpha})"
+    except ValueError:
+        return f"rgba(38, 38, 38, {alpha})"  # fallback gray
 
 
 def blend_hex_colors(start_hex: str, end_hex: str, amount: float) -> str:
-    """Blend *start_hex* toward *end_hex* by *amount* in the 0-1 range."""
+    """Blend *start_hex* toward *end_hex* by *amount* in the 0-1 range.
+
+    Returns fallback color for malformed input.
+    """
+    if not start_hex or not end_hex:
+        return "#262626"  # fallback gray
+
     amount = max(0.0, min(1.0, amount))
     start = hex_to_rgb(start_hex)
     end = hex_to_rgb(end_hex)

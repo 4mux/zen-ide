@@ -162,7 +162,13 @@ class WindowStateMixin:
             if not getattr(self, "_ai_enabled", True):
                 self.bottom_paned.set_position(0)
             elif saved["bottom"]:
-                self.bottom_paned.set_position(saved["bottom"])
+                # Only restore saved bottom position if auto_expand_terminals is enabled
+                from shared.settings import get_setting
+
+                if get_setting("behavior.auto_expand_terminals", True):
+                    self.bottom_paned.set_position(saved["bottom"])
+                # If auto_expand_terminals is False, don't restore saved position
+                # (keep whatever position the panel currently has)
 
     def _unlock_paned_positions(self):
         """Release position locks after initialization is complete."""
@@ -227,22 +233,24 @@ class WindowStateMixin:
         self.bottom_paned = real_bottom
 
         if self._ai_enabled:
-            from ai.ai_chat_tabs import AIChatTabs
+            from ai.ai_terminal_stack import AITerminalStack
+            from shared.settings import get_setting as _gs
 
-            self.ai_chat = AIChatTabs()
+            saved_ai_tabs = _gs("workspace.ai_tabs", None)
+            self.ai_chat = AITerminalStack(saved_tabs=saved_ai_tabs)
             self.ai_chat.set_size_request(DEFAULT_BOTTOM_PANEL_MIN_HEIGHT, DEFAULT_BOTTOM_PANEL_MIN_HEIGHT)
             self.ai_chat.add_css_class("terminal")
             self.bottom_paned.set_start_child(self.ai_chat)
-
-            # Wire AI chat callbacks - must happen before idle_add fires
-            self.ai_chat.get_workspace_folders = self.tree_view.get_workspace_folders
-            self.ai_chat.get_current_file = self.editor_view.get_current_file_path
         else:
             # AI disabled — use empty Box so terminal takes full width
             self.ai_chat = Gtk.Box()
             self.ai_chat.set_visible(False)
             self.bottom_paned.set_start_child(self.ai_chat)
-            self.bottom_paned.set_position(0)
+            # Only set position to 0 if auto_expand_terminals is enabled
+            from shared.settings import get_setting
+
+            if get_setting("behavior.auto_expand_terminals", True):
+                self.bottom_paned.set_position(0)
 
         self.terminal_view = TerminalStack(get_workspace_folders_callback=self.tree_view.get_workspace_folders)
         self.terminal_view.set_size_request(DEFAULT_BOTTOM_PANEL_MIN_HEIGHT, DEFAULT_BOTTOM_PANEL_MIN_HEIGHT)
@@ -490,18 +498,24 @@ class WindowStateMixin:
         if remaining_files:
             self._open_deferred_files(remaining_files, last_file)
 
-        # Show welcome screen if no files were opened
+        # Show welcome screen only if no pre-existing tabs (files or dev pad) were open
         if self.editor_view.notebook.get_n_pages() == 0:
-            self._show_welcome_screen()
-            if get_setting("behavior.auto_show_dev_pad_when_empty", True):
-                GLib.idle_add(lambda: self.editor_view.toggle_dev_pad(self.dev_pad) or False)
+            dev_pad_was_open = get_setting("workspace.dev_pad_open", False)
+            if dev_pad_was_open or get_setting("behavior.auto_show_dev_pad_when_empty", True):
+                self.editor_view.toggle_dev_pad(self.dev_pad)
+            else:
+                self._show_welcome_screen()
 
-        # Start terminal shell in first workspace folder (skip in single-file mode)
+        # Start terminal shell and AI CLI in first workspace folder (skip in single-file mode)
         if self._bottom_panels_created:
             workspace_dirs = self.tree_view.get_workspace_folders()
             if workspace_dirs and os.path.isdir(workspace_dirs[0]):
                 self.terminal_view.change_directory(workspace_dirs[0])
             self.terminal_view.spawn_shell()
+            if self._ai_enabled:
+                if workspace_dirs and os.path.isdir(workspace_dirs[0]):
+                    self.ai_chat.change_directory(workspace_dirs[0])
+                self.ai_chat.spawn_shell()
 
         # Unlock paned positions now that all real children are in place
         def _settle_and_unlock():
@@ -656,6 +670,13 @@ class WindowStateMixin:
             if tab.file_path:
                 open_files.append(tab.file_path)
         last_file = self.editor_view.get_current_file_path()
+        set_setting("workspace.dev_pad_open", self.editor_view._has_dev_pad_tab(), persist=False)
+
+        # Persist AI chat tabs before save_workspace's atomic write
+        if self._ai_enabled and hasattr(self, "ai_chat") and hasattr(self.ai_chat, "save_state"):
+            ai_tabs = self.ai_chat.save_state()
+            set_setting("workspace.ai_tabs", ai_tabs, persist=False)
+
         save_workspace(open_files=open_files, last_file=last_file)
 
         set_setting("theme", get_theme().name)

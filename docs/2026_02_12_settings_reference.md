@@ -1,7 +1,7 @@
 # Zen IDE — Settings Reference
 
 **Created_at:** 2026-02-12  
-**Updated_at:** 2026-03-08  
+**Updated_at:** 2026-03-21  
 **Status:** Active  
 **Goal:** Document all settings in `~/.zen_ide/settings.json` with types, defaults, and descriptions  
 **Scope:** `src/shared/settings_manager.py`, `~/.zen_ide/settings.json`  
@@ -128,7 +128,15 @@ Controls text rendering quality. Platform-specific behaviour:
 | `ai.is_enabled` | `true` | | Master toggle for AI features. When `false`, hides the AI chat panel and the terminal expands to fill the bottom area. |
 | `ai.provider` | `""` (auto-detect) | | Active AI provider. Values: `"copilot_api"`, `"anthropic_api"`, `"openai_api"`, or `""` for auto-detection. |
 | `ai.show_inline_suggestions` | `true` | ⚙️ | Show AI-powered inline code completion suggestions (ghost text). |
-| `ai.yolo_mode` | `true` | | Skip tool-use confirmation prompts in AI chat. |
+| `ai.yolo_mode` | `true` | | Unlimited tool calls per message (up to `ai.max_tool_rounds` safety ceiling). When `false`, stops after 25 tool calls and asks to continue. |
+| `ai.max_tool_rounds` | `25` | | Hard ceiling on tool-use rounds in yolo mode. Prevents runaway loops from burning tokens. |
+| `ai.context_truncation` | `true` | | Truncate old tool results in long agentic sessions to reduce token cost. |
+| `ai.max_context_chars` | `80000` | | Hard cap on total serialised conversation size (chars). ~20K tokens. |
+| `ai.context_injection.current_file` | `true` | | Include current file contents in the AI system prompt (saves tool calls). |
+| `ai.context_injection.open_tabs` | `true` | | Include list of open editor tabs in the AI system prompt. |
+| `ai.context_injection.git_info` | `true` | | Include git branch, status, and diff stat in the AI system prompt. |
+| `ai.context_injection.diagnostics` | `true` | | Include current errors and warnings in the AI system prompt. |
+| `ai.context_injection.workspace_tree` | `false` | | Include workspace directory structure in the AI system prompt. Disabled by default (can be large). |
 | `ai.model.copilot_api` | `"claude-sonnet-4"` | | Selected model when using the Copilot API provider. |
 | `ai.model.anthropic_api` | `"claude-sonnet-4-20250514"` | | Selected model when using the Anthropic API provider. |
 | `ai.model.openai_api` | `"gpt-4.1"` | | Selected model when using the OpenAI API provider. |

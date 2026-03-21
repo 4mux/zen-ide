@@ -62,7 +62,13 @@ class CompletionCache:
         self._cache.clear()
 
     def _make_key(self, ctx: CompletionContext) -> str:
-        data = f"{ctx.prefix[-200:]}\x00{ctx.suffix[:100]}\x00{ctx.language}"
+        # Use the current line + a few preceding lines as the key.
+        # This makes the cache insensitive to typing within the current
+        # token while still varying by the code context.
+        prefix_lines = ctx.prefix.split("\n")
+        # Use last 3 lines of prefix (stable across minor edits)
+        stable = "\n".join(prefix_lines[-3:]).rstrip()
+        data = f"{stable}\x00{ctx.suffix[:60]}\x00{ctx.language}"
         return hashlib.md5(data.encode()).hexdigest()
 
 
@@ -175,23 +181,15 @@ class InlineCompletionProvider:
 
             from shared.settings import get_setting
 
-            model = get_setting("ai.inline_completion.model", "gpt-4.1")
+            model = get_setting("ai.inline_completion.model", "gpt-4.1-mini")
 
             # Retry API after cooldown if previously failed
             api_ok = self._api_available is not False or (time.time() - self._api_fail_time > _API_RETRY_COOLDOWN_S)
 
             if api_ok and self._api.is_available():
-                # 1. Try FIM completions endpoint first (fastest)
+                # FIM endpoint only — no chat fallback to avoid doubling
+                # API requests (each request costs premium request units).
                 completion = self._try_fim(context, t0)
-                if completion:
-                    self._cache.put(context, [completion])
-                    GLib.idle_add(on_result, completion)
-                    return
-                if self._stop_requested:
-                    return
-
-                # 2. Fall back to chat completions endpoint
-                completion = self._try_chat(context, model, t0, on_chunk)
                 if completion:
                     self._cache.put(context, [completion])
                     GLib.idle_add(on_result, completion)
@@ -200,8 +198,6 @@ class InlineCompletionProvider:
                     return
             else:
                 pass
-
-            # No CLI fallback — API-only
 
         # Boundary catch: completion backends run external/network code paths.
         except Exception as e:
@@ -228,7 +224,7 @@ class InlineCompletionProvider:
 
             from shared.settings import get_setting
 
-            model = get_setting("ai.inline_completion.model", "gpt-4.1")
+            model = get_setting("ai.inline_completion.model", "gpt-4.1-mini")
             api_ok = self._api_available is not False or (time.time() - self._api_fail_time > _API_RETRY_COOLDOWN_S)
 
             if not (api_ok and self._api.is_available()):

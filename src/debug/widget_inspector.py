@@ -6,7 +6,7 @@ opens a popup with full widget introspection info (type, CSS classes,
 allocation, hierarchy, and theme-color hints).
 """
 
-from gi.repository import Gdk, Graphene, Gtk
+from gi.repository import Gdk, Gtk
 
 from themes import get_theme
 
@@ -122,9 +122,6 @@ class WidgetInspector:
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
 
         info = self._collect_widget_info(widget)
-
-        # ChatCanvas-aware: identify which content block was clicked
-        self._enrich_with_chat_block_info(widget, x, y, info)
 
         # Close existing popup
         if self._inspect_popup and self._inspect_popup.get_visible():
@@ -270,48 +267,3 @@ class WidgetInspector:
             hints.append(("accent_color", theme.accent_color))
 
         return hints
-
-    def _enrich_with_chat_block_info(self, widget: Gtk.Widget, win_x: float, win_y: float, info: dict):
-        """If *widget* is a ChatCanvas, add content-block metadata to *info*."""
-        from ai.chat_canvas import ChatCanvas
-
-        canvas = widget if isinstance(widget, ChatCanvas) else None
-        if canvas is None:
-            # Walk up a level — pick() might return a child of ChatCanvas
-            parent = widget.get_parent()
-            while parent is not None:
-                if isinstance(parent, ChatCanvas):
-                    canvas = parent
-                    break
-                parent = parent.get_parent()
-        if canvas is None or not canvas._block_tags:
-            return
-
-        # Convert window coordinates → canvas-local coordinates
-        point = Graphene.Point()
-        point.init(win_x, win_y)
-        ok, local_pt = self._window.compute_point(canvas, point)
-        if not ok:
-            return
-
-        line = canvas.line_at_y(local_pt.y)
-        block = canvas.get_block_at_line(line)
-        if block is None:
-            return
-
-        block_type, start_line, end_line, meta = block
-        preview = canvas.get_block_content_preview(start_line, end_line)
-
-        fg_hex, bg_hex = canvas.get_line_colors(line)
-
-        info["chat_block"] = {
-            "type": block_type,
-            "start_line": start_line,
-            "end_line": end_line,
-            "line_count": end_line - start_line + 1,
-            "clicked_line": line,
-            "preview": preview,
-            "fg_color": fg_hex,
-            "bg_color": bg_hex,
-            **meta,
-        }
