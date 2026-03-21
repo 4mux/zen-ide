@@ -44,7 +44,9 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
 
     COMPONENT_ID = "ai_chat"
 
-    def __init__(self, saved_tabs: list[dict] | None = None):
+    def __init__(
+        self, saved_tabs: list[dict] | None = None, get_workspace_folders_callback=None, get_editor_context_callback=None
+    ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self._views: list = []
         self._tab_buttons: list = []
@@ -52,6 +54,8 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         self._spinners: dict[int, dict] = {}  # view_idx -> {spinner, timeout_id}
         self.on_maximize = None
         self._saved_tabs = saved_tabs  # deferred until spawn_shell
+        self._get_workspace_folders = get_workspace_folders_callback
+        self._get_editor_context = get_editor_context_callback
         self._vertical_mode = get_setting("behavior.ai_chat_on_vertical_stack", False)
 
         self._init_focus_border()
@@ -287,7 +291,10 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
     def _add_view(self):
         from ai.ai_terminal_view import AITerminalView
 
-        view = AITerminalView()
+        view = AITerminalView(
+            get_workspace_folders_callback=self._get_workspace_folders,
+            get_editor_context_callback=self._get_editor_context,
+        )
         view.set_vexpand(True)
 
         view.on_maximize = lambda name: self._on_view_maximize(name)
