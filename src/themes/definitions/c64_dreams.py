@@ -38,8 +38,6 @@ C64_DREAMS = Theme(
     sash_color="#4a3d8a",
     # chat
     term_cyan="#6abfc6",
-    chat_user_fg="#6abfc6",
-    chat_assistant_fg="#bfce72",
     # syntax — full C64 16-color palette for variety
     syntax_keyword="#cb7e75",
     syntax_string="#bfce72",
@@ -56,4 +54,19 @@ C64_DREAMS = Theme(
     term_blue="#6abfc6",
     term_magenta="#a057a3",
     term_white="#d0c8ff",
+    syntax_keyword_control="#cb7e75",
+    syntax_variable="#d0c8ff",
+    syntax_string_escape="#bfce72",
+    syntax_regex="#bfce72",
+    syntax_doc_comment="#6a60a0",
+    syntax_constant="#9ae29b",
+    syntax_boolean="#cb7e75",
+    syntax_parameter="#6abfc6",
+    search_match_bg="#515c6a",
+    search_current_bg="#61afef",
+    is_dark=True,
+    git_added="#98c379",
+    git_modified="#e5c07b",
+    git_deleted="#e06c75",
+    warning_color="#f0d050",
 )

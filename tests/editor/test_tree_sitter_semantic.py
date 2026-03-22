@@ -1,12 +1,13 @@
 """Tests for tree-sitter based semantic token extraction."""
 
-import sys
 import os
+import sys
+
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
-from editor.tree_sitter_semantic import extract_semantic_tokens, _is_pascal_case
+from editor.tree_sitter_semantic import _is_pascal_case, extract_semantic_tokens
 
 try:
     from navigation.tree_sitter_core import TreeSitterCore

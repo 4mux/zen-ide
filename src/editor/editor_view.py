@@ -68,7 +68,7 @@ def _generate_style_scheme(theme) -> str:
     os.makedirs(_SCHEME_DIR, exist_ok=True)
     scheme_id = f"zen-{theme.name}"
 
-    editor_bg = theme.editor_bg
+    editor_bg = theme.main_bg
     line_bg = theme.line_number_bg
     sel_fg = contrast_color(theme.selection_bg)
     ws_color = get_setting("editor.whitespace_color", "") or theme.fg_dim
@@ -2042,11 +2042,11 @@ class EditorTab:
         self._theme_css_provider = css_provider
         css = f"""
             textview text {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
                 color: {theme.fg_color};
             }}
             textview.view {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
             }}
         """
         css_provider.load_from_data(css.encode())

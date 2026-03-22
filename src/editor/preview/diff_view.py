@@ -938,7 +938,7 @@ class DiffView(FocusBorderMixin, Gtk.Box):
         scheme's text background.
         """
         theme = get_theme()
-        bg = theme.editor_bg
+        bg = theme.main_bg
 
         add_bg = _blend_diff_color(DIFF_ADD_RGBA, bg)
         del_bg = _blend_diff_color(DIFF_DEL_RGBA, bg)

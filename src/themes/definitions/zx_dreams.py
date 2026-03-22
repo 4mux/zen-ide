@@ -38,10 +38,7 @@ ZX_DREAMS = Theme(
     sash_color="#0000c5",
     # chat
     term_cyan="#00d7d7",
-    chat_user_fg="#00d7d7",
-    chat_assistant_fg="#d7d700",
     # AI processing
-    ai_processing_color="#d700d7",
     # search
     search_match_bg="#0000c5",
     search_current_bg="#00d700",
@@ -73,4 +70,7 @@ ZX_DREAMS = Theme(
     term_blue="#0000d7",
     term_magenta="#d700d7",
     term_white="#d7d7d7",
+    syntax_parameter="#00d7d7",
+    is_dark=True,
+    warning_color="#f0d050",
 )

@@ -40,8 +40,6 @@ CYBERDREAM = Theme(
     sash_color="#1e2028",
     # AI Chat
     term_cyan="#5ef1ff",
-    chat_user_fg="#5ef1ff",
-    chat_assistant_fg="#ff5ef1",
     # Syntax - vivid neon on black
     syntax_keyword="#ff5ef1",
     syntax_string="#5eff6c",
@@ -70,4 +68,9 @@ CYBERDREAM = Theme(
     term_blue="#5ea1ff",
     term_magenta="#ff5ef1",
     term_white="#ffffff",
+    syntax_parameter="#ffbd5e",
+    search_match_bg="#515c6a",
+    search_current_bg="#61afef",
+    is_dark=True,
+    warning_color="#f0d050",
 )

@@ -40,8 +40,6 @@ FLUOROMACHINE = Theme(
     sash_color="#2e2240",
     # AI Chat
     term_cyan="#61e2ff",
-    chat_user_fg="#61e2ff",
-    chat_assistant_fg="#fc199a",
     # Syntax - neon retro-futuristic
     syntax_keyword="#fc199a",
     syntax_string="#72f1b8",
@@ -70,4 +68,9 @@ FLUOROMACHINE = Theme(
     term_blue="#61e2ff",
     term_magenta="#9d7dce",
     term_white="#8b8da3",
+    syntax_parameter="#fce566",
+    search_match_bg="#515c6a",
+    search_current_bg="#61afef",
+    is_dark=True,
+    warning_color="#f0d050",
 )

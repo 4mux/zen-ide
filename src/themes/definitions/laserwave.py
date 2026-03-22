@@ -40,8 +40,6 @@ LASERWAVE = Theme(
     sash_color="#3d3348",
     # AI Chat
     term_cyan="#b4dce7",
-    chat_user_fg="#40b4c4",
-    chat_assistant_fg="#eb64b9",
     # Syntax
     syntax_keyword="#74dfc4",
     syntax_string="#b4dce7",
@@ -70,4 +68,9 @@ LASERWAVE = Theme(
     term_blue="#40b4c4",
     term_magenta="#b381c5",
     term_white="#ffffff",
+    syntax_parameter="#b381c5",
+    search_match_bg="#515c6a",
+    search_current_bg="#61afef",
+    is_dark=True,
+    warning_color="#f0d050",
 )

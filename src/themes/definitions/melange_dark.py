@@ -47,8 +47,6 @@ MELANGE_DARK = Theme(
     border_focus="#E49B5D",
     sash_color="#292522",
     # AI / chat
-    chat_user_fg="#89B3B6",
-    chat_assistant_fg="#CF9BC2",
     # Search
     search_match_bg="#8B7449",
     search_current_bg="#EBC06D",

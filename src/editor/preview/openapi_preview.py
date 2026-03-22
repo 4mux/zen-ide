@@ -202,7 +202,7 @@ def _build_openapi_css(theme) -> str:
         font-size: {font_size}px;
         line-height: 1.6;
         color: {theme.fg_color};
-        background-color: {theme.editor_bg};
+        background-color: {theme.main_bg};
         padding: 0;
         margin: 0;
         min-height: 100%;
@@ -233,7 +233,7 @@ def _build_openapi_css(theme) -> str:
     .api-version {{
         display: inline-block;
         background: {theme.accent_color};
-        color: {theme.editor_bg};
+        color: {theme.main_bg};
         padding: 2px 8px;
         border-radius: 4px;
         font-size: 0.8em;
@@ -373,7 +373,7 @@ def _build_openapi_css(theme) -> str:
     .example-block {{
         font-family: {mono_stack};
         font-size: 0.8em;
-        background: {theme.editor_bg};
+        background: {theme.main_bg};
         padding: 8px 12px;
         border-radius: 4px;
         border: 1px solid {theme.border_color};
@@ -395,7 +395,7 @@ def _build_openapi_css(theme) -> str:
     .schema-block {{
         font-family: {mono_stack};
         font-size: 0.8em;
-        background: {theme.editor_bg};
+        background: {theme.main_bg};
         padding: 8px 12px;
         border-radius: 4px;
         border: 1px solid {theme.border_color};
@@ -1190,7 +1190,7 @@ class OpenAPIPreview(PreviewScrollMixin, Gtk.Box):
         """Apply theme to MarkdownCanvas."""
         self._canvas.set_theme(
             fg=theme.fg_color,
-            bg=theme.editor_bg,
+            bg=theme.main_bg,
             code_bg=theme.panel_bg,
             accent=theme.accent_color,
             dim=theme.fg_dim,
@@ -1214,7 +1214,7 @@ class OpenAPIPreview(PreviewScrollMixin, Gtk.Box):
 
         theme = get_theme()
         self._css_provider = Gtk.CssProvider()
-        self._css_provider.load_from_data(f"webview {{ background-color: {theme.editor_bg}; }}".encode())
+        self._css_provider.load_from_data(f"webview {{ background-color: {theme.main_bg}; }}".encode())
         self.webview.get_style_context().add_provider(self._css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         self.append(self.webview)
@@ -1320,7 +1320,7 @@ class OpenAPIPreview(PreviewScrollMixin, Gtk.Box):
         self._css_provider = Gtk.CssProvider()
         css = f"""
             textview text {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
                 color: {theme.fg_color};
             }}
         """
@@ -1405,11 +1405,11 @@ class OpenAPIPreview(PreviewScrollMixin, Gtk.Box):
             return
         if self._css_provider:
             if self._backend == "webkit_gtk":
-                self._css_provider.load_from_data(f"webview {{ background-color: {theme.editor_bg}; }}".encode())
+                self._css_provider.load_from_data(f"webview {{ background-color: {theme.main_bg}; }}".encode())
             elif self._backend == "textview" and hasattr(self, "text_view"):
                 css = f"""
                     textview text {{
-                        background-color: {theme.editor_bg};
+                        background-color: {theme.main_bg};
                         color: {theme.fg_color};
                     }}
                 """

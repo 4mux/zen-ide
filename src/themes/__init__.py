@@ -5,7 +5,6 @@ Re-exports all public API from submodules.
 
 from themes.theme_definitions import THEMES
 from themes.theme_manager import (
-    get_ai_processing_color,
     get_ai_settings,
     get_setting,
     get_theme,
@@ -26,7 +25,6 @@ __all__ = [
     "get_theme",
     "set_theme",
     "get_theme_names",
-    "get_ai_processing_color",
     "subscribe_theme_change",
     "unsubscribe_theme_change",
     "toggle_dark_light",

@@ -47,8 +47,6 @@ MELANGE_LIGHT = Theme(
     border_focus="#BC5C00",
     sash_color="#F1F1F1",
     # AI / chat
-    chat_user_fg="#3D6568",
-    chat_assistant_fg="#904180",
     # Search
     search_match_bg="#CCA478",
     search_current_bg="#A06D00",

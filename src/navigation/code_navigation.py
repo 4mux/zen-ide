@@ -283,19 +283,15 @@ class CodeNavigation(PythonNavigationMixin, TerraformNavigationMixin, TypeScript
         """Navigate to a symbol definition in the given buffer."""
         content = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
 
-        line_num = self._find_python_symbol_in_content(content, symbol)
+        line_num = self._ts_py.find_symbol_in_content(content, symbol)
         if not line_num:
-            line_num = self._find_ts_symbol_in_content(content, symbol)
+            line_num = self._ts_js.find_symbol_in_content(content, symbol)
         if line_num:
             self._navigate_to_line(buffer, view, line_num, symbol=symbol)
             return True
 
         # Check for re-export pattern (from .x import symbol)
-        if not hasattr(self, "_ts_py_provider"):
-            from .tree_sitter_py_provider import TreeSitterPyProvider
-
-            self._ts_py_provider = TreeSitterPyProvider()
-        import_line = self._ts_py_provider.find_import_line(content, symbol)
+        import_line = self._ts_py.find_import_line(content, symbol)
         if import_line:
             self._navigate_to_line(buffer, view, import_line, symbol=symbol)
             return True

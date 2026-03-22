@@ -32,8 +32,6 @@ CATPPUCCIN_LATTE = Theme(
     border_focus="#1e66f5",
     sash_color="#dce0e8",
     term_cyan="#179299",
-    chat_user_fg="#179299",
-    chat_assistant_fg="#8839ef",
     syntax_keyword="#8839ef",
     syntax_string="#40a02b",
     syntax_comment="#9ca0b0",
@@ -60,4 +58,6 @@ CATPPUCCIN_LATTE = Theme(
     term_blue="#1e66f5",
     term_magenta="#8839ef",
     term_white="#dce0e8",
+    syntax_parameter="#fe640b",
+    warning_color="#f0d050",
 )

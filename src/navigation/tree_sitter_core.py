@@ -14,6 +14,8 @@ class TreeSitterCore:
     _languages = {}
     _parsers = {}
     _ts_module = None
+    _parse_cache = {}
+    _PARSE_CACHE_MAX = 128
 
     _LANG_REGISTRY = {
         "python": ("tree_sitter_python", "language"),
@@ -71,13 +73,30 @@ class TreeSitterCore:
 
         Pass *old_tree* (from a previous parse) for incremental re-parsing
         after calling ``old_tree.edit(...)`` with the change coordinates.
+
+        Results are cached by content hash when *old_tree* is None so that
+        repeated calls with identical content (e.g. multiple navigation queries
+        on the same file) avoid redundant work.
         """
         parser = cls.get_parser(lang)
         if parser is None:
             return None
         if old_tree is not None:
             return parser.parse(source, old_tree=old_tree)
-        return parser.parse(source)
+
+        import hashlib
+
+        key = (lang, hashlib.sha256(source).digest())
+        cached = cls._parse_cache.get(key)
+        if cached is not None:
+            return cached
+
+        tree = parser.parse(source)
+        if len(cls._parse_cache) >= cls._PARSE_CACHE_MAX:
+            # Evict oldest entry
+            cls._parse_cache.pop(next(iter(cls._parse_cache)))
+        cls._parse_cache[key] = tree
+        return tree
 
     @classmethod
     def query(cls, lang: str, pattern: str):

@@ -38,8 +38,6 @@ C64_VIDEOGAME_DREAMS = Theme(
     sash_color="#2a2a48",
     # chat
     term_cyan="#aaffee",
-    chat_user_fg="#aaffee",
-    chat_assistant_fg="#aaff66",
     # syntax — vivid sprite colors
     syntax_keyword="#ff7777",
     syntax_string="#aaff66",
@@ -56,4 +54,19 @@ C64_VIDEOGAME_DREAMS = Theme(
     term_blue="#6c9cf6",
     term_magenta="#cc77cc",
     term_white="#c8c8d0",
+    syntax_keyword_control="#ff7777",
+    syntax_variable="#c8c8d0",
+    syntax_string_escape="#aaff66",
+    syntax_regex="#aaff66",
+    syntax_doc_comment="#4a4a68",
+    syntax_constant="#cc77cc",
+    syntax_boolean="#ff7777",
+    syntax_parameter="#eeee77",
+    search_match_bg="#515c6a",
+    search_current_bg="#61afef",
+    is_dark=True,
+    git_added="#98c379",
+    git_modified="#e5c07b",
+    git_deleted="#e06c75",
+    warning_color="#f0d050",
 )

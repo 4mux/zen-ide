@@ -32,8 +32,6 @@ GRUVBOX_LIGHT = Theme(
     border_focus="#458588",
     sash_color="#ebdbb2",
     term_cyan="#689d6a",
-    chat_user_fg="#689d6a",
-    chat_assistant_fg="#b16286",
     syntax_keyword="#9d0006",
     syntax_string="#79740e",
     syntax_comment="#928374",
@@ -60,4 +58,6 @@ GRUVBOX_LIGHT = Theme(
     term_blue="#458588",
     term_magenta="#b16286",
     term_white="#ebdbb2",
+    syntax_parameter="#8f3f71",
+    warning_color="#f0d050",
 )

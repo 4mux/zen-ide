@@ -46,7 +46,7 @@ class TreePanelInlineEditMixin:
         padding_left_px = 2
         css = f"""
             entry {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
                 border: {border_px}px solid {theme.accent_color};
                 outline: none;
                 padding: 0px {padding_left_px}px;

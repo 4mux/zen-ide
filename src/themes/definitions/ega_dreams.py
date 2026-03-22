@@ -40,10 +40,7 @@ EGA_DREAMS = Theme(
     # Sash
     sash_color="#0e0e0e",
     # AI / Chat
-    ai_processing_color="#ff55ff",
     term_cyan="#55ffff",
-    chat_user_fg="#55ffff",
-    chat_assistant_fg="#55ff55",
     # Search — EGA yellow highlight
     search_match_bg="#aa5500",
     search_current_bg="#ffff55",
@@ -75,4 +72,7 @@ EGA_DREAMS = Theme(
     term_blue="#5555ff",
     term_magenta="#ff55ff",
     term_white="#aaaaaa",
+    syntax_parameter="#ffff55",
+    is_dark=True,
+    warning_color="#f0d050",
 )

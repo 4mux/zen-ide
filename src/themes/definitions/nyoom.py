@@ -38,8 +38,6 @@ NYOOM = Theme(
     border_focus="#be95ff",
     sash_color="#161616",
     term_cyan="#3ddbd9",
-    chat_user_fg="#3ddbd9",
-    chat_assistant_fg="#be95ff",
     syntax_keyword="#78a9ff",
     syntax_string="#be95ff",
     syntax_comment="#5c5c5c",
@@ -66,5 +64,7 @@ NYOOM = Theme(
     git_deleted="#ee5396",
     search_match_bg="#404040",
     search_current_bg="#33b1ff",
-    ai_processing_color="#be95ff",
+    syntax_parameter="#82cfff",
+    is_dark=True,
+    warning_color="#f0d050",
 )

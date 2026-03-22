@@ -32,8 +32,6 @@ EVERFOREST_LIGHT = Theme(
     border_focus="#3a94c5",
     sash_color="#efebd4",
     term_cyan="#35a77c",
-    chat_user_fg="#35a77c",
-    chat_assistant_fg="#df69ba",
     syntax_keyword="#f85552",
     syntax_string="#8da101",
     syntax_comment="#a6b0a0",
@@ -60,4 +58,6 @@ EVERFOREST_LIGHT = Theme(
     term_blue="#3a94c5",
     term_magenta="#df69ba",
     term_white="#f4f0d9",
+    syntax_parameter="#df69ba",
+    warning_color="#f0d050",
 )

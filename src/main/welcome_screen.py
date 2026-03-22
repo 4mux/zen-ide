@@ -206,7 +206,7 @@ class WelcomeScreen(Gtk.ScrolledWindow):
         css_provider = Gtk.CssProvider()
         css = f"""
             .welcome-screen {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
             }}
         """
         css_provider.load_from_data(css.encode())

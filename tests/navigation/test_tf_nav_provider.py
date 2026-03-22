@@ -168,6 +168,7 @@ class TestNoRegexImport:
 
     def test_no_re_import(self):
         import inspect
+
         import navigation.tree_sitter_tf_provider as mod
 
         source = inspect.getsource(mod)

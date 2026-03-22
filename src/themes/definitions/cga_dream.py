@@ -40,10 +40,7 @@ CGA_DREAM = Theme(
     # Sash
     sash_color="#000000",
     # AI / Chat
-    ai_processing_color="#55ffff",
     term_cyan="#55ffff",
-    chat_user_fg="#ff55ff",
-    chat_assistant_fg="#55ffff",
     # Search — high-contrast yellow block cursor
     search_match_bg="#555500",
     search_current_bg="#888800",
@@ -75,4 +72,7 @@ CGA_DREAM = Theme(
     term_blue="#5555ff",
     term_magenta="#ff55ff",
     term_white="#d0d8ff",
+    syntax_parameter="#ffff55",
+    is_dark=True,
+    warning_color="#f0d050",
 )

@@ -40,8 +40,6 @@ RETROBOX = Theme(
     sash_color="#303030",
     # AI Chat
     term_cyan="#00afaf",
-    chat_user_fg="#00afaf",
-    chat_assistant_fg="#d75faf",
     # Syntax - classic CGA 4-color palette feel
     syntax_keyword="#d75faf",
     syntax_string="#5faf5f",
@@ -70,4 +68,9 @@ RETROBOX = Theme(
     term_blue="#5f87af",
     term_magenta="#d75faf",
     term_white="#d0d0d0",
+    syntax_parameter="#d7af5f",
+    search_match_bg="#515c6a",
+    search_current_bg="#61afef",
+    is_dark=True,
+    warning_color="#f0d050",
 )

@@ -58,16 +58,16 @@ class WindowLayoutMixin:
                 background-color: {theme.panel_bg};
             }}
             .editor {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
             }}
             .editor:backdrop {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
             }}
             .terminal {{
-                background-color: {theme.terminal_bg};
+                background-color: {theme.term_bg};
             }}
             .terminal:backdrop {{
-                background-color: {theme.terminal_bg};
+                background-color: {theme.term_bg};
             }}
             paned > separator {{
                 background-color: {theme.sash_color};
@@ -92,10 +92,10 @@ class WindowLayoutMixin:
                 background-color: {theme.tab_bg};
             }}
             notebook > stack {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
             }}
             notebook > stack:backdrop {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
             }}
             notebook > header {{
                 background-color: {theme.tab_bg};
@@ -219,16 +219,16 @@ class WindowLayoutMixin:
                 background-color: {theme.panel_bg};
             }}
             .editor {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
             }}
             .editor:backdrop {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
             }}
             .terminal {{
-                background-color: {theme.terminal_bg};
+                background-color: {theme.term_bg};
             }}
             .terminal:backdrop {{
-                background-color: {theme.terminal_bg};
+                background-color: {theme.term_bg};
             }}
             .terminal-scrolled {{
                 padding-left: 8px;
@@ -286,10 +286,10 @@ class WindowLayoutMixin:
                 background-color: {theme.tab_bg};
             }}
             notebook > stack {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
             }}
             notebook > stack:backdrop {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
             }}
             notebook > header {{
                 background-color: {theme.tab_bg};

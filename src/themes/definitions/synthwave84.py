@@ -40,8 +40,6 @@ SYNTHWAVE84 = Theme(
     sash_color="#34294f",
     # AI Chat
     term_cyan="#36f9f6",
-    chat_user_fg="#36f9f6",
-    chat_assistant_fg="#ff7edb",
     # Syntax - full neon palette
     syntax_keyword="#fede5d",
     syntax_string="#ff8b39",
@@ -70,4 +68,9 @@ SYNTHWAVE84 = Theme(
     term_blue="#36f9f6",
     term_magenta="#ff7edb",
     term_white="#f0e8ff",
+    syntax_parameter="#f97e72",
+    search_match_bg="#515c6a",
+    search_current_bg="#61afef",
+    is_dark=True,
+    warning_color="#f0d050",
 )

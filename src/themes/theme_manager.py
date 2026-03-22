@@ -44,14 +44,6 @@ def get_theme() -> Theme:
     return _current_theme
 
 
-def get_ai_processing_color() -> str:
-    """Get the AI processing color (purple), falling back to accent_color if not set."""
-    theme = _current_theme
-    if theme.ai_processing_color:
-        return theme.ai_processing_color
-    return theme.accent_color
-
-
 def set_theme(name: str, persist: bool = True) -> Theme:
     """Set the current theme by name and notify subscribers."""
     global _current_theme

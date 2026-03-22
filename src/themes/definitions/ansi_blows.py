@@ -40,9 +40,6 @@ ANSI_BLOWS = Theme(
     sash_color="#333333",
     # Terminal extras
     term_cyan="#00aaaa",
-    chat_user_fg="#44ffff",
-    chat_assistant_fg="#ff44ff",
-    ai_processing_color="#ff44ff",
     # Syntax - mapped from vim highlight groups
     syntax_keyword="#ffff44",  # Statement
     syntax_string="#ff44ff",  # Constant (boldMagenta)
@@ -74,4 +71,7 @@ ANSI_BLOWS = Theme(
     term_blue="#1d28d2",
     term_magenta="#aa00aa",
     term_white="#aaaaaa",
+    syntax_parameter="#ff44ff",
+    is_dark=True,
+    warning_color="#f0d050",
 )

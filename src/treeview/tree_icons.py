@@ -25,6 +25,12 @@ ICON_COLORS = {
     ".go": "#00ADD8",
     ".rb": "#701516",
     ".rs": "#dea584",
+    ".c": "#599eff",
+    ".cpp": "#599eff",
+    ".h": "#a074c4",
+    ".hpp": "#a074c4",
+    ".tf": "#844fba",
+    ".tfvars": "#844fba",
     "default": "#6d8086",
 }
 

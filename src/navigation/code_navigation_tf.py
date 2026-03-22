@@ -9,10 +9,17 @@ import os
 class TerraformNavigationMixin:
     """Terraform-specific navigation methods mixed into CodeNavigation."""
 
+    @property
+    def _ts_tf(self):
+        """Lazy-loaded Tree-sitter Terraform provider."""
+        if not hasattr(self, "_ts_tf_provider"):
+            from navigation.tree_sitter_tf_provider import TreeSitterTfProvider
+
+            self._ts_tf_provider = TreeSitterTfProvider()
+        return self._ts_tf_provider
+
     def _handle_terraform_click(self, buffer, view, file_path, click_iter) -> bool:
         """Handle Cmd+Click for Terraform (.tf) files."""
-        from navigation.tree_sitter_tf_provider import TreeSitterTfProvider
-
         word = self._get_word_at_iter(buffer, click_iter)
         if not word:
             return False
@@ -21,7 +28,7 @@ class TerraformNavigationMixin:
         if not chain:
             return False
 
-        provider = TreeSitterTfProvider()
+        provider = self._ts_tf
         result = provider.resolve_reference(chain, file_path)
         if result:
             target_file, target_line = result

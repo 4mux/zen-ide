@@ -78,7 +78,7 @@ def _build_github_css(theme, font_family=None, font_size=None):
         font-size: {font_size}px;
         line-height: 1.8;
         color: {theme.fg_color};
-        background-color: {theme.editor_bg};
+        background-color: {theme.main_bg};
         padding: 0 0 0 24px;
         margin: 0;
         word-wrap: break-word;
@@ -189,7 +189,7 @@ def _build_github_css(theme, font_family=None, font_size=None):
         background-color: {theme.panel_bg};
     }}
     table tr {{
-        background-color: {theme.editor_bg};
+        background-color: {theme.main_bg};
     }}
     table tr:nth-child(2n) {{
         background-color: {theme.fg_color}08;
@@ -643,7 +643,7 @@ class MarkdownPreview(PreviewScrollMixin, Gtk.Box):
         """Apply theme to MarkdownCanvas."""
         self._canvas.set_theme(
             fg=theme.fg_color,
-            bg=theme.editor_bg,
+            bg=theme.main_bg,
             code_bg=theme.panel_bg,
             accent=theme.accent_color,
             dim=theme.fg_dim,
@@ -673,7 +673,7 @@ class MarkdownPreview(PreviewScrollMixin, Gtk.Box):
 
         theme = get_theme()
         self._css_provider = Gtk.CssProvider()
-        self._css_provider.load_from_data(f"webview {{ background-color: {theme.editor_bg}; }}".encode())
+        self._css_provider.load_from_data(f"webview {{ background-color: {theme.main_bg}; }}".encode())
         self.webview.get_style_context().add_provider(self._css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         self.append(self.webview)
@@ -851,7 +851,7 @@ class MarkdownPreview(PreviewScrollMixin, Gtk.Box):
         self._css_provider = Gtk.CssProvider()
         css = f"""
             textview text {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
                 color: {theme.fg_color};
             }}
         """
@@ -974,11 +974,11 @@ class MarkdownPreview(PreviewScrollMixin, Gtk.Box):
             return
         if self._css_provider:
             if self._backend == "webkit_gtk":
-                self._css_provider.load_from_data(f"webview {{ background-color: {theme.editor_bg}; }}".encode())
+                self._css_provider.load_from_data(f"webview {{ background-color: {theme.main_bg}; }}".encode())
             elif self._backend == "textview" and hasattr(self, "text_view"):
                 css = f"""
                     textview text {{
-                        background-color: {theme.editor_bg};
+                        background-color: {theme.main_bg};
                         color: {theme.fg_color};
                     }}
                 """

@@ -57,10 +57,7 @@ TERRACOTTA = Theme(
     syntax_boolean="#c27a8e",
     # UI extras
     sash_color="#362c25",
-    ai_processing_color="#c27a8e",
     term_cyan="#7ab0a6",
-    chat_user_fg="#7ab0a6",
-    chat_assistant_fg="#c9a84c",
     search_match_bg="#4d3a2c",
     search_current_bg="#5a4232",
     is_dark=True,
@@ -77,4 +74,6 @@ TERRACOTTA = Theme(
     term_blue="#7a8fa6",
     term_magenta="#c27a8e",
     term_white="#e8ddd0",
+    syntax_parameter="#e0956e",
+    warning_color="#f0d050",
 )

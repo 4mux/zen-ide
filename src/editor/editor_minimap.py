@@ -194,7 +194,7 @@ class EditorMinimap(Gtk.Widget):
         if self._cached_colors is None or self._cached_colors.get("_theme") != theme.name:
             self._cached_colors = {
                 "_theme": theme.name,
-                "bg": hex_to_rgb_float(theme.editor_bg),
+                "bg": hex_to_rgb_float(theme.main_bg),
                 "add": hex_to_rgb_float(theme.git_added),
                 "change": hex_to_rgb_float(theme.git_modified),
                 "del": hex_to_rgb_float(theme.git_deleted),

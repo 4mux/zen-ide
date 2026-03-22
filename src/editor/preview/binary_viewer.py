@@ -109,7 +109,7 @@ class BinaryViewer(Gtk.Box):
 
         css = f"""
             textview, textview text {{
-                background-color: {theme.editor_bg};
+                background-color: {theme.main_bg};
                 color: {theme.fg_color};
                 font-family: '{font_family}';
                 font-size: {font_size}pt;

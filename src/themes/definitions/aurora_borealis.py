@@ -40,10 +40,7 @@ AURORA_BOREALIS = Theme(
     # Sash
     sash_color="#0b0e14",
     # AI / Chat
-    ai_processing_color="#c594ff",
     term_cyan="#5ccfe6",
-    chat_user_fg="#5ccfe6",
-    chat_assistant_fg="#c594ff",
     # Search
     search_match_bg="#2a4a3a",
     search_current_bg="#3a6a4a",
@@ -75,4 +72,7 @@ AURORA_BOREALIS = Theme(
     term_blue="#5ccfe6",
     term_magenta="#c594ff",
     term_white="#c7d5e0",
+    syntax_parameter="#ffad66",
+    is_dark=True,
+    warning_color="#f0d050",
 )

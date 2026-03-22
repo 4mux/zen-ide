@@ -8,14 +8,14 @@ deferred to the functions that use them to preserve startup performance.
 
 from editor.autocomplete.autocomplete import CompletionItem, CompletionKind
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _node_text(source: bytes, node) -> str:
     """Extract UTF-8 text spanned by a tree-sitter node."""
-    return source[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+    return source[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
 
 
 def _top_level_children(root, type_name: str):
@@ -43,6 +43,7 @@ def _parse(source_text: str, lang: str):
 # ---------------------------------------------------------------------------
 # Python — signature & docstring extraction
 # ---------------------------------------------------------------------------
+
 
 def py_extract_signature(source: bytes, func_node) -> str:
     """Build a human-readable signature from a ``function_definition`` node."""
@@ -82,6 +83,7 @@ def py_extract_docstring(source: bytes, node) -> str:
 # ---------------------------------------------------------------------------
 # Python — init / dataclass constructor
 # ---------------------------------------------------------------------------
+
 
 def _is_dataclass_node(source: bytes, class_node) -> bool:
     """Check whether *class_node* has a ``@dataclass`` decorator."""
@@ -155,6 +157,7 @@ def py_extract_init_signature(source: bytes, class_node) -> str:
 # Python — top-level definitions
 # ---------------------------------------------------------------------------
 
+
 def py_extract_definitions(source: bytes, tree) -> list[CompletionItem]:
     """Extract top-level function, class, and variable definitions."""
     items: list[CompletionItem] = []
@@ -197,6 +200,7 @@ def py_extract_definitions(source: bytes, tree) -> list[CompletionItem]:
 # ---------------------------------------------------------------------------
 # Python — imports
 # ---------------------------------------------------------------------------
+
 
 def py_extract_imports(source: bytes, tree) -> list[CompletionItem]:
     """Extract imported symbol names from the AST."""
@@ -263,6 +267,7 @@ def _py_import_from_stmt(source: bytes, node, items: list):
 # ---------------------------------------------------------------------------
 # Python — class members
 # ---------------------------------------------------------------------------
+
 
 def py_extract_class_members(source: bytes, tree, class_name: str, *, include_private: bool = False) -> list[CompletionItem]:
     """Extract public methods and class-level attributes from a named class."""
@@ -358,9 +363,18 @@ def _walk_for_self_attrs(source: bytes, node, members: dict):
                         if name not in members:
                             members[name] = CompletionItem(name, CompletionKind.PROPERTY)
         # Recurse into blocks (if, for, with, try)
-        if child.type in ("block", "if_statement", "for_statement", "while_statement",
-                          "with_statement", "try_statement", "except_clause",
-                          "else_clause", "elif_clause", "finally_clause"):
+        if child.type in (
+            "block",
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "with_statement",
+            "try_statement",
+            "except_clause",
+            "else_clause",
+            "elif_clause",
+            "finally_clause",
+        ):
             _walk_for_self_attrs(source, child, members)
 
 
@@ -426,6 +440,7 @@ def _extract_members_from_class(source: bytes, class_node, *, include_private: b
 # ---------------------------------------------------------------------------
 # Python — enclosing class, variable type, function/method signatures
 # ---------------------------------------------------------------------------
+
 
 def py_find_enclosing_class(source: bytes, tree, byte_offset: int) -> str | None:
     """Return the name of the class containing *byte_offset*, or None."""
@@ -590,6 +605,7 @@ def py_extract_file_symbols(source: bytes, tree) -> list[CompletionItem]:
 # Python — chain resolution helpers
 # ---------------------------------------------------------------------------
 
+
 def py_resolve_chain(source: bytes, tree, parts: list[str]) -> list[CompletionItem]:
     """Walk a dotted chain (e.g. [ClassName, SubClass]) and return members of the final class."""
     current_node = tree.root_node if hasattr(tree, "root_node") else tree
@@ -628,6 +644,7 @@ def _find_class_node(source: bytes, root, class_name: str):
 # ---------------------------------------------------------------------------
 # JavaScript / TypeScript — definitions & imports
 # ---------------------------------------------------------------------------
+
 
 def js_extract_definitions(source: bytes, tree, *, is_typescript: bool = False) -> list[CompletionItem]:
     """Extract top-level symbol definitions from JS/TS AST."""

@@ -32,8 +32,6 @@ ZEN_LIGHT = Theme(
     border_focus="#0078d4",
     sash_color="#e0e0e0",
     term_cyan="#0598bc",
-    chat_user_fg="#0598bc",
-    chat_assistant_fg="#8839ef",
     syntax_keyword="#0000ff",
     syntax_string="#a31515",
     syntax_comment="#008000",
@@ -60,4 +58,6 @@ ZEN_LIGHT = Theme(
     term_blue="#0451a5",
     term_magenta="#bc05bc",
     term_white="#e5e5e5",
+    syntax_parameter="#098658",
+    warning_color="#f0d050",
 )

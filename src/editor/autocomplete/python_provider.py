@@ -17,13 +17,10 @@ from pathlib import Path
 from editor.autocomplete import CompletionItem, CompletionKind
 from editor.autocomplete.tree_sitter_provider import (
     _parse,
-    py_extract_class_members,
     py_extract_definitions,
     py_extract_file_symbols,
     py_extract_imports,
-    py_extract_init_signature,
     py_extract_self_members,
-    py_extract_signature,
     py_find_enclosing_class,
     py_find_function_signature,
     py_find_method_signature,
@@ -154,8 +151,9 @@ class PythonCompletionProvider:
         func_chain, specified_kwargs, positional_count = ctx
 
         source, tree = _parse(buffer_text, "python")
-        sig = self._resolve_function_signature(func_chain, file_path, buffer_text, source, tree,
-                                                cursor_offset=cursor_iter.get_offset())
+        sig = self._resolve_function_signature(
+            func_chain, file_path, buffer_text, source, tree, cursor_offset=cursor_iter.get_offset()
+        )
         if not sig:
             return []
 
@@ -321,8 +319,7 @@ class PythonCompletionProvider:
             args.append(remaining)
         return args
 
-    def _resolve_function_signature(self, func_chain, file_path, buffer_text, source=None, tree=None,
-                                     *, cursor_offset=None):
+    def _resolve_function_signature(self, func_chain, file_path, buffer_text, source=None, tree=None, *, cursor_offset=None):
         """Resolve a function/method call chain to its signature string."""
         if source is None or tree is None:
             source, tree = _parse(buffer_text, "python")
@@ -794,9 +791,7 @@ class PythonCompletionProvider:
                 if rel_module not in resolved_modules:
                     sibling = pkg_dir / f"{rel_module}.py"
                     if sibling.is_file():
-                        resolved_modules[rel_module] = {
-                            item.name: item for item in self._parse_symbols(sibling)
-                        }
+                        resolved_modules[rel_module] = {item.name: item for item in self._parse_symbols(sibling)}
                     else:
                         resolved_modules[rel_module] = {}
                 if name in resolved_modules.get(rel_module, {}):

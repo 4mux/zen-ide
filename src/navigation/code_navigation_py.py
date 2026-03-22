@@ -231,11 +231,7 @@ class PythonNavigationMixin:
             if not line_end_iter.ends_line():
                 line_end_iter.forward_to_line_end()
             line_text = buffer.get_text(line_iter, line_end_iter, True)
-            if not hasattr(self, "_ts_py_provider"):
-                from .tree_sitter_py_provider import TreeSitterPyProvider
-
-                self._ts_py_provider = TreeSitterPyProvider()
-            class_name = self._ts_py_provider.find_constructor_class(line_text, word)
+            class_name = self._ts_py.find_constructor_class(line_text, word)
             if class_name:
                 if class_name in imports:
                     module_path = imports[class_name]
@@ -460,12 +456,7 @@ class PythonNavigationMixin:
 
         init_dir = os.path.dirname(init_file)
 
-        if not hasattr(self, "_ts_py_provider"):
-            from .tree_sitter_py_provider import TreeSitterPyProvider
-
-            self._ts_py_provider = TreeSitterPyProvider()
-
-        module_ref = self._ts_py_provider.find_import_source(content, symbol)
+        module_ref = self._ts_py.find_import_source(content, symbol)
         if not module_ref:
             return None
 
