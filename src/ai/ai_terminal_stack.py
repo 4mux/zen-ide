@@ -106,6 +106,9 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
                     idx = len(self._views) - 1
                     if not self._vertical_mode and 0 <= idx < len(self._tab_buttons):
                         self._tab_buttons[idx].set_title(title)
+                    if self._vertical_mode:
+                        view._ai_header.title_label.set_label(title)
+                        view._ai_header.title_label.set_visible(True)
                     view._title_inferred = True
                 # Restore per-tab provider so each tab keeps its CLI
                 provider = tab_info.get("provider")
@@ -348,6 +351,7 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         if self._views and len(self._views) > 1:
             view.cwd = self._views[0].cwd
         view.spawn_shell()
+        self._persist_tabs()
         focus_mgr = get_component_focus_manager()
         if focus_mgr.get_current_focus() == self.COMPONENT_ID:
             self._on_focus_in()
@@ -427,6 +431,7 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
             header = self._views[view_idx]._ai_header
             header.title_label.set_label(title)
             header.title_label.set_visible(True)
+        self._persist_tabs()
 
     def _on_processing_changed(self, view_idx: int, processing: bool) -> None:
         if self._vertical_mode:
@@ -765,7 +770,9 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         items = enumerate(self._tab_buttons) if not self._vertical_mode else enumerate(self._views)
         for i, item in items:
             if self._vertical_mode:
-                entry: dict = {"title": f"Chat {i + 1}"}
+                view = item
+                title = view._ai_header.title_label.get_label() or f"Chat {i + 1}"
+                entry: dict = {"title": title}
             else:
                 entry = {"title": item.get_title()}
             if i == 0:
