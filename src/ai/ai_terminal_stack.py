@@ -4,7 +4,6 @@ import os
 
 from gi.repository import GLib, Gtk
 
-from ai.spinner import Spinner
 from constants import TERMINAL_TAB_BAR_MARGIN_BOTTOM
 from shared.focus_border_mixin import FocusBorderMixin
 from shared.focus_manager import get_component_focus_manager
@@ -446,24 +445,25 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
 
     def _start_tab_spinner(self, view_idx: int) -> None:
         self._stop_tab_spinner(view_idx)
-        spinner = Spinner()
         btn = self._tab_buttons[view_idx]
-        btn.close_btn.set_visible(True)
+        btn.close_btn.set_visible(False)
 
-        def tick():
-            if view_idx not in self._spinners:
-                return False
-            btn.close_btn.set_label(spinner.spin())
-            return True
-
-        timeout_id = GLib.timeout_add(80, tick)
-        self._spinners[view_idx] = {"spinner": spinner, "timeout_id": timeout_id}
-        btn.close_btn.set_label(spinner.spin())
+        gtk_spinner = Gtk.Spinner()
+        gtk_spinner.set_size_request(12, 12)
+        gtk_spinner.set_halign(Gtk.Align.CENTER)
+        gtk_spinner.set_valign(Gtk.Align.CENTER)
+        btn._content.append(gtk_spinner)
+        gtk_spinner.start()
+        self._spinners[view_idx] = {"widget": gtk_spinner}
 
     def _stop_tab_spinner(self, view_idx: int) -> None:
         state = self._spinners.pop(view_idx, None)
         if state:
-            GLib.source_remove(state["timeout_id"])
+            widget = state["widget"]
+            widget.stop()
+            parent = widget.get_parent()
+            if parent:
+                parent.remove(widget)
         if 0 <= view_idx < len(self._tab_buttons):
             btn = self._tab_buttons[view_idx]
             btn.close_btn.set_label("\u00d7")
@@ -473,26 +473,17 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
 
     def _start_header_spinner(self, view_idx: int) -> None:
         self._stop_header_spinner(view_idx)
-        spinner = Spinner()
-        lbl = self._views[view_idx]._ai_header.spinner_label
-        lbl.set_visible(True)
-
-        def tick():
-            if view_idx not in self._spinners:
-                return False
-            lbl.set_label(spinner.spin())
-            return True
-
-        timeout_id = GLib.timeout_add(80, tick)
-        self._spinners[view_idx] = {"spinner": spinner, "timeout_id": timeout_id}
-        lbl.set_label(spinner.spin())
+        spinner_widget = self._views[view_idx]._ai_header.spinner_widget
+        spinner_widget.set_visible(True)
+        spinner_widget.start()
+        self._spinners[view_idx] = {"header": True}
 
     def _stop_header_spinner(self, view_idx: int) -> None:
         state = self._spinners.pop(view_idx, None)
-        if state:
-            GLib.source_remove(state["timeout_id"])
         if 0 <= view_idx < len(self._views):
-            self._views[view_idx]._ai_header.spinner_label.set_visible(False)
+            spinner_widget = self._views[view_idx]._ai_header.spinner_widget
+            spinner_widget.stop()
+            spinner_widget.set_visible(False)
 
     def _on_view_maximize(self, name: str) -> None:
         if self.on_maximize:
