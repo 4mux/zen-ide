@@ -487,8 +487,8 @@ class TestPythonDocstringExtraction:
     def setup_method(self):
         from editor.autocomplete.tree_sitter_provider import (
             _parse,
-            py_extract_definitions,
             py_extract_class_members,
+            py_extract_definitions,
             py_extract_self_members,
         )
 

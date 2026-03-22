@@ -2,17 +2,16 @@
 
 from editor.autocomplete.python_provider import PythonCompletionProvider
 from editor.autocomplete.tree_sitter_provider import (
+    _find_class_node,
+    _is_dataclass_node,
     _parse,
+    py_extract_class_members,
     py_extract_definitions,
     py_extract_imports,
-    py_find_enclosing_class,
-    py_extract_class_members,
-    py_resolve_variable_type,
-    py_resolve_chain,
-    py_extract_docstring,
     py_extract_init_signature,
-    _is_dataclass_node,
-    _find_class_node,
+    py_find_enclosing_class,
+    py_resolve_chain,
+    py_resolve_variable_type,
 )
 
 

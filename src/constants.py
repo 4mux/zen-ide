@@ -114,7 +114,7 @@ ZEN_BUTTON_ICON_SIZE = 12  # default icon font-size (px) for ZenButton icons
 
 # Panel Header Buttons (AI chat, terminal)
 PANEL_BUTTON_SIZE = ZEN_BUTTON_HEIGHT  # uniform width/height for panel header buttons
-PANEL_HEADER_FONT_SIZE = 10  # uniform font size (pt) for panel header labels
+PANEL_HEADER_FONT_SIZE = 13  # uniform font size (pt) for panel header labels
 
 # Focus Animation
 FOCUS_ANIM_DURATION_MS = 150  # Total animation duration in milliseconds

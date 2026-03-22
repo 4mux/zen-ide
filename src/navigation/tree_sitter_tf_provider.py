@@ -30,9 +30,7 @@ class TreeSitterTfProvider(NavigationProvider):
     def parse_imports(self, content: str, file_ext: str = ".tf") -> Dict[str, str]:
         return {}
 
-    def find_symbol_in_content(
-        self, content: str, symbol: str, file_ext: str = ".tf"
-    ) -> Optional[int]:
+    def find_symbol_in_content(self, content: str, symbol: str, file_ext: str = ".tf") -> Optional[int]:
         """Find any block whose name matches *symbol*."""
         if file_ext.lower() not in self.SUPPORTED_EXTENSIONS:
             return None

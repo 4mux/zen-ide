@@ -181,6 +181,36 @@ class TestTreeSitterPyProvider:
         assert "exists" in result
         assert "dirname" not in result
 
+    def test_parse_imports_falls_back_to_source_bytes_when_node_text_missing(self, provider, monkeypatch):
+        from navigation.tree_sitter_core import TreeSitterCore
+
+        class _FakeNode:
+            def __init__(self, start_byte, end_byte, text=None):
+                self.start_byte = start_byte
+                self.end_byte = end_byte
+                self.text = text
+
+        content = "from typing import Optional\n"
+        provider._ensure_queries = lambda: None
+        provider._imp_query = object()
+
+        monkeypatch.setattr(TreeSitterCore, "parse", lambda source, lang: object())
+        monkeypatch.setattr(
+            TreeSitterCore,
+            "run_query",
+            lambda tree, query: [
+                (
+                    0,
+                    {
+                        "module": [_FakeNode(5, 11)],
+                        "name": [_FakeNode(19, 27)],
+                    },
+                )
+            ],
+        )
+
+        assert provider.parse_imports(content) == {"Optional": "typing.Optional"}
+
 
 class TestTreeSitterTsProvider:
     """Tests for the TypeScript/JavaScript Tree-sitter navigation provider."""

@@ -16,23 +16,97 @@ Token types returned match the tag names used by semantic_highlight:
 # Skip param-usage highlighting for files larger than this (bytes).
 _MAX_PARAM_FILE_SIZE = 50_000
 
-_PY_SKIP_NAMES = frozenset({
-    "if", "elif", "else", "for", "while", "with", "try", "except",
-    "finally", "return", "yield", "raise", "pass", "break", "continue",
-    "and", "or", "not", "in", "is", "lambda", "assert", "global",
-    "nonlocal", "del", "async", "await", "class", "def", "import",
-    "from", "as",
-})
+_PY_SKIP_NAMES = frozenset(
+    {
+        "if",
+        "elif",
+        "else",
+        "for",
+        "while",
+        "with",
+        "try",
+        "except",
+        "finally",
+        "return",
+        "yield",
+        "raise",
+        "pass",
+        "break",
+        "continue",
+        "and",
+        "or",
+        "not",
+        "in",
+        "is",
+        "lambda",
+        "assert",
+        "global",
+        "nonlocal",
+        "del",
+        "async",
+        "await",
+        "class",
+        "def",
+        "import",
+        "from",
+        "as",
+    }
+)
 
-_JS_SKIP_NAMES = frozenset({
-    "if", "else", "for", "while", "do", "switch", "case", "default",
-    "break", "continue", "return", "throw", "try", "catch", "finally",
-    "new", "delete", "typeof", "instanceof", "void", "in", "of", "with",
-    "debugger", "class", "extends", "function", "var", "let", "const",
-    "import", "export", "from", "as", "async", "await", "yield", "super",
-    "type", "interface", "enum", "implements", "namespace", "module",
-    "declare", "abstract", "readonly", "keyof", "infer", "satisfies",
-})
+_JS_SKIP_NAMES = frozenset(
+    {
+        "if",
+        "else",
+        "for",
+        "while",
+        "do",
+        "switch",
+        "case",
+        "default",
+        "break",
+        "continue",
+        "return",
+        "throw",
+        "try",
+        "catch",
+        "finally",
+        "new",
+        "delete",
+        "typeof",
+        "instanceof",
+        "void",
+        "in",
+        "of",
+        "with",
+        "debugger",
+        "class",
+        "extends",
+        "function",
+        "var",
+        "let",
+        "const",
+        "import",
+        "export",
+        "from",
+        "as",
+        "async",
+        "await",
+        "yield",
+        "super",
+        "type",
+        "interface",
+        "enum",
+        "implements",
+        "namespace",
+        "module",
+        "declare",
+        "abstract",
+        "readonly",
+        "keyof",
+        "infer",
+        "satisfies",
+    }
+)
 
 
 def _is_pascal_case(name: str) -> bool:
@@ -49,6 +123,7 @@ def _same_field(parent, field, node):
 # Python
 # ---------------------------------------------------------------------------
 
+
 def _get_python_params(func_node):
     """Return a set of parameter name strings for a function_definition."""
     params = func_node.child_by_field_name("parameters")
@@ -62,7 +137,8 @@ def _get_python_params(func_node):
             if n not in ("self", "cls"):
                 names.add(n)
         elif child.type in (
-            "typed_parameter", "typed_default_parameter",
+            "typed_parameter",
+            "typed_default_parameter",
             "default_parameter",
         ):
             for sub in child.children:
@@ -100,8 +176,10 @@ def _classify_python(node, tokens, param_scope):
 
     # Import names — skip
     if parent.type in (
-        "import_statement", "import_from_statement",
-        "aliased_import", "dotted_name",
+        "import_statement",
+        "import_from_statement",
+        "aliased_import",
+        "dotted_name",
     ):
         return
 
@@ -134,7 +212,8 @@ def _classify_python(node, tokens, param_scope):
         tokens.append((node.start_byte, node.end_byte, "param"))
         return
     if parent.type in (
-        "typed_parameter", "typed_default_parameter",
+        "typed_parameter",
+        "typed_default_parameter",
         "default_parameter",
     ):
         # First identifier child is the parameter name
@@ -162,6 +241,7 @@ def _classify_python(node, tokens, param_scope):
 # TypeScript / JavaScript
 # ---------------------------------------------------------------------------
 
+
 def _get_ts_params(func_node):
     """Return a set of parameter name strings for a TS/JS function node."""
     params = func_node.child_by_field_name("parameters")
@@ -176,8 +256,10 @@ def _get_ts_params(func_node):
         if child.type == "identifier":
             p = child.parent
             if p is not None and p.type in (
-                "formal_parameters", "required_parameter",
-                "optional_parameter", "rest_pattern",
+                "formal_parameters",
+                "required_parameter",
+                "optional_parameter",
+                "rest_pattern",
             ):
                 names.add(child.text.decode("utf-8"))
             elif p is not None and p.type == "identifier" and p.parent and p.parent.type == "formal_parameters":
@@ -212,9 +294,12 @@ def _classify_ts(node, tokens, param_scope):
 
     # Definition names — skip
     if parent.type in (
-        "function_declaration", "class_declaration",
-        "interface_declaration", "type_alias_declaration",
-        "enum_declaration", "method_definition",
+        "function_declaration",
+        "class_declaration",
+        "interface_declaration",
+        "type_alias_declaration",
+        "enum_declaration",
+        "method_definition",
     ):
         if _same_field(parent, "name", node):
             return
@@ -283,6 +368,7 @@ def _classify_ts(node, tokens, param_scope):
 # Generic walk
 # ---------------------------------------------------------------------------
 
+
 def _walk_flat(node):
     """Yield all descendant nodes depth-first."""
     yield node
@@ -291,10 +377,14 @@ def _walk_flat(node):
 
 
 _PY_FUNC_TYPES = frozenset({"function_definition"})
-_TS_FUNC_TYPES = frozenset({
-    "function_declaration", "method_definition",
-    "arrow_function", "function",
-})
+_TS_FUNC_TYPES = frozenset(
+    {
+        "function_declaration",
+        "method_definition",
+        "arrow_function",
+        "function",
+    }
+)
 
 
 def _walk(node, tokens, param_scope, lang_type, classify_fn, func_types, get_params_fn):
@@ -315,6 +405,7 @@ def _walk(node, tokens, param_scope, lang_type, classify_fn, func_types, get_par
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def extract_semantic_tokens(root_node, lang_type: str):
     """Extract semantic tokens from a tree-sitter root node.

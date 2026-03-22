@@ -43,18 +43,30 @@ class TreeSitterBufferCache:
 
     def record_insert(self, start_byte, start_point, text_bytes_len, new_end_point):
         """Record a text insertion for incremental parsing."""
-        self._pending_edits.append((
-            start_byte, start_byte, start_byte + text_bytes_len,
-            start_point, start_point, new_end_point,
-        ))
+        self._pending_edits.append(
+            (
+                start_byte,
+                start_byte,
+                start_byte + text_bytes_len,
+                start_point,
+                start_point,
+                new_end_point,
+            )
+        )
         self._dirty = True
 
     def record_delete(self, start_byte, start_point, end_byte, end_point):
         """Record a text deletion for incremental parsing."""
-        self._pending_edits.append((
-            start_byte, end_byte, start_byte,
-            start_point, end_point, start_point,
-        ))
+        self._pending_edits.append(
+            (
+                start_byte,
+                end_byte,
+                start_byte,
+                start_point,
+                end_point,
+                start_point,
+            )
+        )
         self._dirty = True
 
     def invalidate(self):
@@ -90,6 +102,7 @@ def ts_lang_for_buffer(buf):
 # ---------------------------------------------------------------------------
 # Signal helpers
 # ---------------------------------------------------------------------------
+
 
 def _iter_to_byte_offset(buf, it):
     """Convert a GtkTextIter to a UTF-8 byte offset."""
@@ -127,6 +140,7 @@ def _on_delete_range(buf, start, end, cache):
 # ---------------------------------------------------------------------------
 # Public setup
 # ---------------------------------------------------------------------------
+
 
 def setup_buffer_cache(tab):
     """Attach a tree-sitter buffer cache to an EditorTab and wire signals."""

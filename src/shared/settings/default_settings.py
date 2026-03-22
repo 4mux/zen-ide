@@ -97,10 +97,10 @@ DEFAULT_SETTINGS = {
         },
     },
     "fonts": {
-        "editor": {"family": _DEFAULT_FONT, "size": 16, "weight": _DEFAULT_FONT_WEIGHT},
-        "terminal": {"family": _DEFAULT_FONT, "size": 16, "weight": _DEFAULT_FONT_WEIGHT},
-        "explorer": {"family": _DEFAULT_FONT, "size": 16, "weight": _DEFAULT_FONT_WEIGHT},
-        "ai_chat": {"family": _DEFAULT_FONT, "size": 16, "weight": _DEFAULT_FONT_WEIGHT},
+        "editor": {"family": _DEFAULT_FONT, "size": 14, "weight": _DEFAULT_FONT_WEIGHT},
+        "terminal": {"family": _DEFAULT_FONT, "size": 14, "weight": _DEFAULT_FONT_WEIGHT},
+        "explorer": {"family": _DEFAULT_FONT, "size": 14, "weight": _DEFAULT_FONT_WEIGHT},
+        "ai_chat": {"family": _DEFAULT_FONT, "size": 14, "weight": _DEFAULT_FONT_WEIGHT},
         "markdown_preview": {"family": _DEFAULT_FONT, "size": 14, "weight": _DEFAULT_FONT_WEIGHT},
     },
     "font_rendering": {

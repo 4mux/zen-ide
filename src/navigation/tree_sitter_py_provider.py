@@ -34,12 +34,32 @@ class TreeSitterPyProvider(NavigationProvider):
         for child in node.children:
             yield from TreeSitterPyProvider._walk(child)
 
+    @staticmethod
+    def _node_text(node, source_bytes: bytes) -> Optional[str]:
+        """Return decoded node text, reconstructing it from source bytes if needed."""
+        if node is None:
+            return None
+
+        text = getattr(node, "text", None)
+        if isinstance(text, bytes):
+            return text.decode("utf-8")
+        if isinstance(text, str):
+            return text
+
+        start_byte = getattr(node, "start_byte", None)
+        end_byte = getattr(node, "end_byte", None)
+        if isinstance(start_byte, int) and isinstance(end_byte, int):
+            return source_bytes[start_byte:end_byte].decode("utf-8")
+
+        return None
+
     def find_symbol_in_content(self, content: str, symbol: str, file_ext: str = ".py") -> Optional[int]:
         """Find a symbol definition in Python source. Returns 1-based line number or None."""
         from .tree_sitter_core import TreeSitterCore
 
         self._ensure_queries()
-        tree = TreeSitterCore.parse(content.encode("utf-8"), "python")
+        source_bytes = content.encode("utf-8")
+        tree = TreeSitterCore.parse(source_bytes, "python")
         if tree is None:
             return None
 
@@ -47,7 +67,7 @@ class TreeSitterPyProvider(NavigationProvider):
         seen_lines = set()
         for _, captures in matches:
             for name_node in captures.get("name", []):
-                if name_node.text.decode("utf-8") == symbol:
+                if self._node_text(name_node, source_bytes) == symbol:
                     line = name_node.start_point[0] + 1
                     if line not in seen_lines:
                         return line
@@ -59,7 +79,8 @@ class TreeSitterPyProvider(NavigationProvider):
         from .tree_sitter_core import TreeSitterCore
 
         self._ensure_queries()
-        tree = TreeSitterCore.parse(content.encode("utf-8"), "python")
+        source_bytes = content.encode("utf-8")
+        tree = TreeSitterCore.parse(source_bytes, "python")
         if tree is None:
             return {}
 
@@ -73,16 +94,24 @@ class TreeSitterPyProvider(NavigationProvider):
             if not module_nodes:
                 continue
 
-            module_text = module_nodes[0].text.decode("utf-8")
+            module_text = self._node_text(module_nodes[0], source_bytes)
+            if not module_text:
+                continue
 
             if name_nodes:
                 # from X import Y / from X import Y as Z
-                imported_name = name_nodes[0].text.decode("utf-8")
-                alias = alias_nodes[0].text.decode("utf-8") if alias_nodes else imported_name
+                imported_name = self._node_text(name_nodes[0], source_bytes)
+                if not imported_name:
+                    continue
+                alias = self._node_text(alias_nodes[0], source_bytes) if alias_nodes else imported_name
+                if not alias:
+                    continue
                 result[alias] = f"{module_text}.{imported_name}"
             elif alias_nodes:
                 # import X as Y
-                alias = alias_nodes[0].text.decode("utf-8")
+                alias = self._node_text(alias_nodes[0], source_bytes)
+                if not alias:
+                    continue
                 result[alias] = module_text
             else:
                 # import X
@@ -100,7 +129,8 @@ class TreeSitterPyProvider(NavigationProvider):
         from .tree_sitter_core import TreeSitterCore
 
         self._ensure_queries()
-        tree = TreeSitterCore.parse(content.encode("utf-8"), "python")
+        source_bytes = content.encode("utf-8")
+        tree = TreeSitterCore.parse(source_bytes, "python")
         if tree is None:
             return None
 
@@ -112,9 +142,9 @@ class TreeSitterPyProvider(NavigationProvider):
             if not module_nodes or not name_nodes:
                 continue
 
-            imported_name = name_nodes[0].text.decode("utf-8")
+            imported_name = self._node_text(name_nodes[0], source_bytes)
             if imported_name == symbol:
-                return module_nodes[0].text.decode("utf-8")
+                return self._node_text(module_nodes[0], source_bytes)
 
         return None
 
@@ -123,7 +153,8 @@ class TreeSitterPyProvider(NavigationProvider):
         from .tree_sitter_core import TreeSitterCore
 
         self._ensure_queries()
-        tree = TreeSitterCore.parse(content.encode("utf-8"), "python")
+        source_bytes = content.encode("utf-8")
+        tree = TreeSitterCore.parse(source_bytes, "python")
         if tree is None:
             return None
 
@@ -136,8 +167,10 @@ class TreeSitterPyProvider(NavigationProvider):
             if not name_nodes:
                 continue
 
-            imported_name = name_nodes[0].text.decode("utf-8")
-            alias = alias_nodes[0].text.decode("utf-8") if alias_nodes else imported_name
+            imported_name = self._node_text(name_nodes[0], source_bytes)
+            if not imported_name:
+                continue
+            alias = self._node_text(alias_nodes[0], source_bytes) if alias_nodes else imported_name
 
             if imported_name == symbol or alias == symbol:
                 if node_nodes:
@@ -154,7 +187,8 @@ class TreeSitterPyProvider(NavigationProvider):
         """
         from .tree_sitter_core import TreeSitterCore
 
-        tree = TreeSitterCore.parse(content.encode("utf-8"), "python")
+        source_bytes = content.encode("utf-8")
+        tree = TreeSitterCore.parse(source_bytes, "python")
         if tree is None:
             return None
 
@@ -167,7 +201,7 @@ class TreeSitterPyProvider(NavigationProvider):
             if left is None or right is None:
                 continue
 
-            if left.type != "identifier" or left.text.decode("utf-8") != var_name:
+            if left.type != "identifier" or self._node_text(left, source_bytes) != var_name:
                 continue
 
             if right.type != "call":
@@ -177,7 +211,9 @@ class TreeSitterPyProvider(NavigationProvider):
             if func is None:
                 continue
 
-            func_text = func.text.decode("utf-8")
+            func_text = self._node_text(func, source_bytes)
+            if not func_text:
+                continue
             last_part = func_text.rsplit(".", 1)[-1]
             if last_part[:1].isupper():
                 return func_text
@@ -192,7 +228,8 @@ class TreeSitterPyProvider(NavigationProvider):
         """
         from .tree_sitter_core import TreeSitterCore
 
-        tree = TreeSitterCore.parse(content.encode("utf-8"), "python")
+        source_bytes = content.encode("utf-8")
+        tree = TreeSitterCore.parse(source_bytes, "python")
         if tree is None:
             return None
 
@@ -211,9 +248,9 @@ class TreeSitterPyProvider(NavigationProvider):
             attr = left.child_by_field_name("attribute")
             if obj is None or attr is None:
                 continue
-            if obj.type != "identifier" or obj.text.decode("utf-8") != "self":
+            if obj.type != "identifier" or self._node_text(obj, source_bytes) != "self":
                 continue
-            if attr.text.decode("utf-8") != attr_name:
+            if self._node_text(attr, source_bytes) != attr_name:
                 continue
 
             if right.type != "call":
@@ -223,7 +260,9 @@ class TreeSitterPyProvider(NavigationProvider):
             if func is None:
                 continue
 
-            func_text = func.text.decode("utf-8")
+            func_text = self._node_text(func, source_bytes)
+            if not func_text:
+                continue
             last_part = func_text.rsplit(".", 1)[-1]
             if last_part[:1].isupper():
                 return func_text
@@ -239,7 +278,8 @@ class TreeSitterPyProvider(NavigationProvider):
         """
         from .tree_sitter_core import TreeSitterCore
 
-        tree = TreeSitterCore.parse(content.encode("utf-8"), "python")
+        source_bytes = content.encode("utf-8")
+        tree = TreeSitterCore.parse(source_bytes, "python")
         if tree is None:
             return None
 
@@ -260,7 +300,7 @@ class TreeSitterPyProvider(NavigationProvider):
             return None
 
         for param_node in self._extract_param_names(params):
-            if param_node.text.decode("utf-8") == word:
+            if self._node_text(param_node, source_bytes) == word:
                 param_line = param_node.start_point[0] + 1
                 if param_line == click_line:
                     return None
@@ -298,7 +338,8 @@ class TreeSitterPyProvider(NavigationProvider):
         """
         from .tree_sitter_core import TreeSitterCore
 
-        tree = TreeSitterCore.parse(line_text.encode("utf-8"), "python")
+        source_bytes = line_text.encode("utf-8")
+        tree = TreeSitterCore.parse(source_bytes, "python")
         if tree is None:
             return None
 
@@ -310,7 +351,7 @@ class TreeSitterPyProvider(NavigationProvider):
             obj = node.child_by_field_name("object")
             if attr is None or obj is None:
                 continue
-            if attr.text.decode("utf-8") != method_name:
+            if self._node_text(attr, source_bytes) != method_name:
                 continue
             if obj.type != "call":
                 continue
@@ -319,7 +360,9 @@ class TreeSitterPyProvider(NavigationProvider):
             if func is None:
                 continue
 
-            func_text = func.text.decode("utf-8")
+            func_text = self._node_text(func, source_bytes)
+            if not func_text:
+                continue
             last_part = func_text.rsplit(".", 1)[-1]
             if last_part[:1].isupper():
                 return func_text
