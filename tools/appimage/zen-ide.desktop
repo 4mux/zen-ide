@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Zen IDE
+Comment=A lightweight IDE
+Exec=zen-ide %F
+Icon=zen-ide
+Terminal=false
+Categories=Development;IDE;TextEditor;
+StartupWMClass=zen-ide
+MimeType=text/plain;

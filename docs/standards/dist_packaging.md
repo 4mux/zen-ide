@@ -1,26 +1,40 @@
-# Dist Packaging — macOS App Bundle
+# Dist Packaging — macOS App Bundle & Linux AppImage
 
 **Created_at:** 2026-03-17  
-**Updated_at:** 2026-03-17  
+**Updated_at:** 2026-03-22  
 **Status:** Active  
-**Goal:** Document the `make dist` packaging pipeline, common pitfalls, and the checklist for adding new dependencies  
-**Scope:** `Zen IDE.spec`, `Makefile` (dist target), `tools/trim_icu_data.py`, `tools/pyinstaller_hooks/`  
+**Goal:** Document the `make dist` packaging pipeline for macOS and Linux, common pitfalls, and the checklist for adding new dependencies  
+**Scope:** `Zen IDE.spec`, `Zen IDE.linux.spec`, `Makefile` (dist target), `tools/trim_icu_data.py`, `tools/build_appimage.sh`, `tools/appimage/`, `tools/pyinstaller_hooks/`  
 
 ---
 
 ## Overview
 
-`make dist` produces a standalone macOS `.app` bundle using **PyInstaller**. The pipeline has several post-processing steps that optimise size and fix platform quirks. Because PyInstaller bundles a frozen Python environment, **any new import can silently break the dist build** even if `make run` works perfectly.
+`make dist` produces a standalone distributable for the current platform:
 
-### Pipeline Steps
+- **macOS:** `.app` bundle using PyInstaller + codesigning
+- **Linux:** `.AppImage` using PyInstaller + appimagetool
+
+### macOS Pipeline Steps
 
 ```
-make dist
+make dist (macOS)
   ├─ 1. PyInstaller  →  Freeze Python + deps into .app bundle
   ├─ 2. strip -x     →  Remove debug symbols from .dylib/.so files
   ├─ 3. trim_icu_data →  Shrink libicudata (locale reduction, ~25 MB saved)
   ├─ 4. codesign      →  Re-sign all binaries + the .app bundle
   └─ 5. cp to /Applications
+```
+
+### Linux Pipeline Steps
+
+```
+make dist (Linux)
+  ├─ 1. PyInstaller  →  Freeze Python + deps into onedir bundle
+  ├─ 2. Assemble AppDir (bundle + .desktop + icon + AppRun)
+  ├─ 3. strip         →  Remove debug symbols from .so files
+  ├─ 4. appimagetool  →  Compress AppDir into .AppImage
+  └─ 5. Output: dist/Zen_IDE-<version>-<arch>.AppImage
 ```
 
 ---
@@ -174,15 +188,102 @@ If the app crashes on launch, check stderr for:
 
 ---
 
+## Linux AppImage
+
+### How It Works
+
+The Linux AppImage bundles the PyInstaller-frozen app into a single executable file that runs on most Linux distributions without installation. The build script (`tools/build_appimage.sh`) orchestrates the entire process.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `Zen IDE.linux.spec` | PyInstaller spec for Linux (no Homebrew, no macOS frameworks) |
+| `tools/build_appimage.sh` | Build orchestrator — PyInstaller → AppDir → AppImage |
+| `tools/appimage/AppRun` | Entry point that sets up GI/GTK environment paths |
+| `tools/appimage/zen-ide.desktop` | Freedesktop desktop entry embedded in AppImage |
+
+### AppDir Structure
+
+```
+AppDir/
+  ├─ AppRun                           # Launcher (sets env vars, execs binary)
+  ├─ zen-ide.desktop                  # Desktop integration
+  ├─ zen-ide.png                      # App icon (256×256)
+  ├─ share/icons/hicolor/256x256/     # Icon in standard location
+  └─ zen-ide/                         # PyInstaller onedir output
+      ├─ zen-ide                      # Frozen executable
+      ├─ gi_typelibs/                 # GObject typelibs
+      ├─ lib/gdk-pixbuf-2.0/         # Pixbuf loaders
+      ├─ share/glib-2.0/schemas/     # GSettings schemas
+      ├─ fonts/resources/             # Bundled fonts
+      └─ *.so / *.so.*               # Shared libraries
+```
+
+### Environment Variables (set by AppRun)
+
+| Variable | Purpose |
+|----------|---------|
+| `GI_TYPELIB_PATH` | GObject Introspection typelib lookup |
+| `LD_LIBRARY_PATH` | Shared library search path |
+| `GSETTINGS_SCHEMA_DIR` | GSettings schema location |
+| `XDG_DATA_DIRS` | Icons, themes, mime database |
+| `GDK_PIXBUF_MODULE_DIR` | Pixbuf loader modules |
+
+### Building
+
+```bash
+# Prerequisites
+make install-system-deps   # GTK4 system libraries
+make install               # Python venv + all deps
+
+# Build the AppImage
+make dist
+# → dist/Zen_IDE-0.1.0-x86_64.AppImage
+
+# Run it
+./dist/Zen_IDE-0.1.0-x86_64.AppImage
+```
+
+### Adding Dependencies (Linux-specific)
+
+When adding a new Python or native dependency:
+
+1. Add to `pyproject.toml` as usual
+2. Add to `hiddenimports` in **both** `Zen IDE.spec` (macOS) **and** `Zen IDE.linux.spec` (Linux)
+3. No `extra_binaries` needed on Linux — PyInstaller auto-detects `.so` files from system paths
+4. Build and test: `make dist && ./dist/Zen_IDE-*.AppImage`
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `ModuleNotFoundError` on launch | Missing `hiddenimports` | Add module to `Zen IDE.linux.spec` |
+| GTK warnings / no theme | Missing GSettings schemas | Check `GSETTINGS_SCHEMA_DIR` in AppRun |
+| No icons rendering | Missing icon theme | Verify `hooksconfig.gi.icons` includes `Adwaita` |
+| `cannot open shared object` | Missing `.so` in bundle | PyInstaller missed it — add to `binaries` in spec |
+| FUSE error running AppImage | Host lacks FUSE | Run with `--appimage-extract-and-run` flag |
+
+### Desktop Integration (without AppImage)
+
+To install just the `.desktop` shortcut pointing at your dev checkout (no AppImage):
+
+```bash
+make install-desktop
+```
+
+---
+
 ## Quick Reference
 
 | Task | Where to Change |
 |------|-----------------|
-| Add Python dependency | `pyproject.toml` + `Zen IDE.spec` `hiddenimports` |
-| Add native library | `Zen IDE.spec` `extra_binaries` |
-| Add GObject typelib | `Zen IDE.spec` `extra_typelibs` |
-| Add data files | `Zen IDE.spec` `datas` |
-| Exclude stdlib module | `Zen IDE.spec` `excludes` (verify no transitive deps first) |
+| Add Python dependency | `pyproject.toml` + `Zen IDE.spec` + `Zen IDE.linux.spec` `hiddenimports` |
+| Add native library (macOS) | `Zen IDE.spec` `extra_binaries` |
+| Add GObject typelib (macOS) | `Zen IDE.spec` `extra_typelibs` |
+| Add data files | Both `.spec` files `datas` |
+| Exclude stdlib module | Both `.spec` files `excludes` (verify no transitive deps first) |
 | Add PyInstaller hook | `tools/pyinstaller_hooks/hook-<module>.py` |
-| Adjust ICU trimming | `tools/trim_icu_data.py` `KEEP_*` sets |
+| Adjust ICU trimming (macOS) | `tools/trim_icu_data.py` `KEEP_*` sets |
 | macOS app metadata | `Zen IDE.spec` `info_plist` in `BUNDLE()` |
+| Linux AppImage config | `tools/appimage/AppRun`, `tools/build_appimage.sh` |

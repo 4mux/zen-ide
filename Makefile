@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help run run-compile startup-time clean install install-py install-cli install-dev install-build install-system-deps test tests lint dist build-launcher
+.PHONY: help run run-compile startup-time clean install install-py install-cli install-dev install-build install-system-deps install-desktop test tests lint dist build-launcher
 
 UNAME_S := $(shell uname -s)
 PYTHON  = .venv/bin/python3
@@ -99,7 +99,7 @@ ifeq ($(UNAME_S),Darwin)
 	@echo "✓ Built universal launcher: $$(file $(LAUNCHER_BIN) | sed 's/.*: //')"
 endif
 
-dist: build-launcher ## Build/install app (macOS .app bundle, Linux .desktop)
+dist: build-launcher ## Build standalone app (macOS .app bundle, Linux AppImage)
 ifeq ($(UNAME_S),Darwin)
 	@echo "Building standalone $(APP_NAME).app with PyInstaller..."
 	@rm -rf build dist
@@ -122,6 +122,14 @@ ifeq ($(UNAME_S),Darwin)
 	@echo "✓ $(APP_NAME) installed to /Applications/$(APP_NAME).app"
 	@echo "  Size: $$(du -sh '/Applications/$(APP_NAME).app' | cut -f1)"
 else ifeq ($(UNAME_S),Linux)
+	@bash tools/build_appimage.sh
+else
+	@echo "Unsupported platform: $(UNAME_S)"
+	@exit 1
+endif
+
+install-desktop: ## Install .desktop file and icon for current user (Linux)
+ifeq ($(UNAME_S),Linux)
 	@echo "Installing .desktop file and icon..."
 	@mkdir -p ~/.local/share/applications ~/.local/share/icons/hicolor/256x256/apps
 	@cp zen_icon.png ~/.local/share/icons/hicolor/256x256/apps/zen-ide.png
@@ -130,8 +138,7 @@ else ifeq ($(UNAME_S),Linux)
 	@update-desktop-database ~/.local/share/applications/ 2>/dev/null || true
 	@echo "✓ Installed zen-ide.desktop and icon for current user"
 else
-	@echo "Unsupported platform: $(UNAME_S)"
-	@exit 1
+	@echo "install-desktop is only supported on Linux"
 endif
 
 clean: ## Remove build artifacts and caches
