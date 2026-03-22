@@ -97,6 +97,7 @@ DIFF_MINIMAP_WIDTH = EDITOR_MINIMAP_INDICATOR_WIDTH  # pixels width — matches 
 
 # AI Chat
 AI_CHAT_NO_DATA_TIMEOUT = 300  # seconds with no output before killing stuck AI process
+TERMINAL_SCROLLBAR_HIDE_DELAY_MS = 1200  # overlay jog-wheel scrollbar auto-hide delay
 
 # Terminal
 TERMINAL_HEADER_MARGIN_TOP = 8  # pixels above terminal header (matches tree view header margin)

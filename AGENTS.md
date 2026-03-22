@@ -71,7 +71,7 @@ make install      # Install dependencies with uv
   - `src/icons/` - Centralised icon definitions and rendering helpers
   - `src/fonts/` - Font management
   - `src/themes/` - Theme definitions and manager
-  - `src/langs/` - Language specs (.lang files) and language detection
+  - `src/editor/langs/` - Language specs (.lang files) and language detection
 
 ### Shared Utilities (GUI-agnostic)
 - `src/shared/` - **GUI-agnostic utilities**:

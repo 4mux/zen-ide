@@ -39,6 +39,7 @@ DEFAULT_SETTINGS = {
     "ai": {
         "is_enabled": True,  # Master toggle — when False, hides AI chat and disables inline suggestions
         "provider": "",  # "", "claude_cli", "copilot_cli" — empty means auto-detect (prefers claude)
+        "model": "",  # CLI model override — e.g. "opus", "sonnet", "haiku" for claude_cli; empty means CLI default
         "show_inline_suggestions": True,  # Enable AI ghost text inline suggestions
         "yolo_mode": True,  # When True: no tool-use limit (unlimited iterations). When False: stops after 25 tool calls and asks to continue.
         "inline_completion": {

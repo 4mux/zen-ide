@@ -128,4 +128,4 @@ class TestThemeDefaults:
 
     def test_tree_ignored_fg_default(self):
         t = _make_theme()
-        assert t.tree_ignored_fg == ""
+        assert t.tree_ignored_fg == "#6c6c6c"

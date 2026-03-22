@@ -263,6 +263,10 @@ SEMANTIC_PATTERNS = [
         r"(?:getting|having|got)\s+(?:an?\s+)?error\s+(?:with|in|on|for|from)\s+(\w+(?:\s+\w+)?)",
         lambda m: f"debug {m.group(1)}",
     ),
+    (
+        r"(\w+(?:\s+\w+){0,3})\s+(?:doesn'?t|don'?t|can'?t|won'?t)\s+(?:work|run|start|load|open|display|show|render|scroll|match|update|save|close)",
+        lambda m: f"fix {m.group(1)}",
+    ),
     # EXPLANATION
     (r"(?:can you\s+)?explain\s+(?:what\s+)?(?:is\s+)?(?:the\s+)?(\w+(?:\s+\w+)?)", lambda m: f"explain {m.group(1)}"),
     (r"how\s+does\s+(\w+(?:\s+\w+)?)\s+work", lambda m: f"how {m.group(1)}"),
@@ -459,6 +463,8 @@ def _try_semantic_patterns(text: str) -> Optional[str]:
 def _process_message(text: str) -> str:
     """Process a message to extract a concise title."""
     text_normalized = " ".join(text.lower().split())
+    # Normalize curly/smart quotes to ASCII for proper contraction handling
+    text_normalized = re.sub(r"[\u2018\u2019\u201a\u201b\u2032\u00b4]", "'", text_normalized)
 
     # Remove code blocks for semantic analysis
     text_clean = re.sub(r"```[\s\S]*?```", " ", text_normalized)

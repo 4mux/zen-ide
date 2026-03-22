@@ -40,6 +40,7 @@ Welcome to the Zen IDE wiki — the complete user manual covering every feature,
 
 ### Reference
 - [Supported Languages & File Types](Supported-Languages)
+- [Language Examples](Language-Examples)
 - [User Directory (~/.zen_ide)](User-Directory)
 - [Popup Dialogs](Popups)
 - [Status Bar](Status-Bar)

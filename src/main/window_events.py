@@ -44,6 +44,9 @@ class WindowEventsMixin:
             if file_path:
                 self.diff_view.show_diff(file_path, self.editor_view.get_current_content())
 
+        # Update IDE state file for AI context
+        self._update_ide_state_file()
+
     def _on_tree_file_selected(self, file_path: str):
         """Handle file selection from tree view."""
         from constants import IMAGE_EXTENSIONS
@@ -98,6 +101,9 @@ class WindowEventsMixin:
             self._update_status_bar_position()
         # Follow file in terminal
         self._terminal_follow_file(file_path)
+
+        # Update IDE state file for AI context
+        self._update_ide_state_file()
 
     def _on_terminal_open_file(self, file_path: str, line_num: int | None):
         """Handle Cmd+click file navigation from terminal."""
@@ -192,6 +198,9 @@ class WindowEventsMixin:
                 open_files.append(tab.file_path)
         last_file = self.editor_view.get_current_file_path()
         save_workspace(open_files=open_files, last_file=last_file)
+
+        # Update IDE state file for AI context
+        self._update_ide_state_file()
 
     def _on_tabs_empty(self):
         """Handle all editor tabs closed — collapse editor area."""

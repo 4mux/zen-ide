@@ -1,0 +1,10 @@
+# Build artifacts
+demo
+src/*.o
+
+# Test binaries
+tests/test_vector3
+tests/test_shape
+tests/test_circle
+tests/test_rectangle
+tests/test_renderer

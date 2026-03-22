@@ -4,7 +4,7 @@
 **Updated_at:** 2026-03-08  
 **Status:** Active  
 **Goal:** Explain syntax highlighting via GtkSourceView language definitions and dynamic CSS generation  
-**Scope:** `src/langs/language_detect.py`, `src/langs/`, semantic highlighting  
+**Scope:** `src/editor/langs/language_detect.py`, `src/editor/langs/`, semantic highlighting  
 
 ---
 
@@ -35,7 +35,7 @@ Zen uses [GtkSourceView 5](https://wiki.gnome.org/Projects/GtkSourceView) for sy
 
 ## Layer 1: Language Detection
 
-**File:** `src/langs/language_detect.py`
+**File:** `src/editor/langs/language_detect.py`
 
 When a file is opened, `detect_language()` assigns a GtkSourceView language ID to the buffer using a 3-level fallback:
 

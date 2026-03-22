@@ -380,6 +380,13 @@ class WindowLayoutMixin:
             scrollbar slider:hover {{
                 background-color: alpha({theme.fg_color}, 0.4);
             }}
+            .terminal-scrollbar,
+            .terminal-scrollbar trough {{
+                background-color: transparent;
+                background-image: none;
+                border: none;
+                box-shadow: none;
+            }}
             /* ── Global button theming ── */
             /* Flat button hover/active/focus */
             button.flat:hover {{
@@ -696,13 +703,6 @@ class WindowLayoutMixin:
             return self._header
 
         header = Gtk.HeaderBar()
-        # On macOS, use native window controls (traffic lights) to avoid the
-        # CSD dead-zone bug where clicks on the top portion of GTK-drawn
-        # window control buttons are intercepted by the system drag/resize area.
-        import sys
-
-        if sys.platform == "darwin":
-            header.set_use_native_controls(True)
         self.set_titlebar(header)
         self._header = header
         return header

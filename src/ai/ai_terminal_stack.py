@@ -4,7 +4,6 @@ import os
 
 from gi.repository import GLib, Gtk
 
-from ai.spinner import Spinner
 from constants import TERMINAL_TAB_BAR_MARGIN_BOTTOM
 from shared.focus_border_mixin import FocusBorderMixin
 from shared.focus_manager import get_component_focus_manager
@@ -44,7 +43,9 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
 
     COMPONENT_ID = "ai_chat"
 
-    def __init__(self, saved_tabs: list[dict] | None = None):
+    def __init__(
+        self, saved_tabs: list[dict] | None = None, get_workspace_folders_callback=None, get_editor_context_callback=None
+    ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self._views: list = []
         self._tab_buttons: list = []
@@ -52,6 +53,8 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         self._spinners: dict[int, dict] = {}  # view_idx -> {spinner, timeout_id}
         self.on_maximize = None
         self._saved_tabs = saved_tabs  # deferred until spawn_shell
+        self._get_workspace_folders = get_workspace_folders_callback
+        self._get_editor_context = get_editor_context_callback
         self._vertical_mode = get_setting("behavior.ai_chat_on_vertical_stack", False)
 
         self._init_focus_border()
@@ -103,11 +106,18 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
                     idx = len(self._views) - 1
                     if not self._vertical_mode and 0 <= idx < len(self._tab_buttons):
                         self._tab_buttons[idx].set_title(title)
+                    if self._vertical_mode:
+                        view._ai_header.title_label.set_label(title)
+                        view._ai_header.title_label.set_visible(True)
                     view._title_inferred = True
                 # Restore per-tab provider so each tab keeps its CLI
                 provider = tab_info.get("provider")
                 if provider:
                     view._current_provider = provider
+                # Restore per-tab model so each tab keeps its model choice
+                model = tab_info.get("model")
+                if model:
+                    view._current_model = model
                 # Restore per-tab session ID so --resume uses the right session
                 session_id = tab_info.get("session_id")
                 if session_id:
@@ -134,6 +144,7 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         hdr.add_btn.connect("clicked", lambda _b: self._on_add_request())
         hdr.clear_btn.connect("clicked", lambda _b: self._clear_active())
         hdr.maximize_btn.connect("clicked", self._on_maximize_clicked)
+        self._stack_maximize_btn = hdr.maximize_btn
         self._header = hdr
         self.append(hdr.box)
 
@@ -201,7 +212,10 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
     def _close_tab(self, index: int) -> None:
         if len(self._views) <= 1:
             return
-        self._stop_tab_spinner(index)
+        if self._vertical_mode:
+            self._stop_header_spinner(index)
+        else:
+            self._stop_tab_spinner(index)
         view = self._views[index]
         view.cleanup()
         if self._vertical_mode:
@@ -226,6 +240,13 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
             self._update_tab_selection()
             self._update_tab_close_buttons()
             self._update_tab_bar_visibility()
+        self._persist_tabs()
+
+    def _persist_tabs(self) -> None:
+        """Save current tab state to settings so closed tabs stay closed on restart."""
+        from shared.settings import set_setting
+
+        set_setting("workspace.ai_tabs", self.save_state(), persist=True)
 
     def _close_tab_by_view(self, view) -> None:
         """Close a specific view (used in vertical mode)."""
@@ -287,13 +308,16 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
     def _add_view(self):
         from ai.ai_terminal_view import AITerminalView
 
-        view = AITerminalView()
+        view = AITerminalView(
+            get_workspace_folders_callback=self._get_workspace_folders,
+            get_editor_context_callback=self._get_editor_context,
+        )
         view.set_vexpand(True)
 
         view.on_maximize = lambda name: self._on_view_maximize(name)
         view.on_provider_changed = lambda label, v=view: self._on_view_provider_changed(v, label)
-        view.on_title_inferred = lambda title, idx=len(self._views): self._on_title_inferred(idx, title)
-        view.on_processing_changed = lambda p, idx=len(self._views): self._on_processing_changed(idx, p)
+        view.on_title_inferred = lambda title, v=view: self._on_title_inferred(self._view_idx(v), title)
+        view.on_processing_changed = lambda p, v=view: self._on_processing_changed(self._view_idx(v), p)
 
         self._views.append(view)
         tab_idx = len(self._views) - 1
@@ -301,10 +325,12 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         if self._vertical_mode:
             # Vertical mode: show each view's own header, add to vertical container
             view.add_css_class(self.UNFOCUS_CSS_CLASS)
-            # Wire up header buttons for pane-level add/close/maximize
+            # Wire up header buttons for pane-level add/close
             view._ai_header.add_btn.connect("clicked", lambda _b: self._on_add_request())
             view._ai_header.clear_btn.connect("clicked", lambda _b, v=view: self._close_tab_by_view(v))
-            view._ai_header.maximize_btn.connect("clicked", lambda _b, v=view: self._on_pane_maximize(v))
+            # Route pane-level maximize through view.on_maximize (like terminal_stack);
+            # this avoids double-firing since _on_maximize_clicked already calls on_maximize.
+            view.on_maximize = lambda _name, v=view: self._on_pane_maximize(v)
             self._content_container.prepend(view)
         else:
             view._header.set_visible(False)
@@ -322,14 +348,23 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
     def _on_add_request(self) -> None:
         # Capture the active view's provider before _add_view moves the index.
         prev_provider = self._views[self._active_idx]._current_provider if self._views else None
+        prev_model = self._views[self._active_idx]._current_model if self._views else None
         view = self._add_view()
         # Inherit provider and workspace cwd from the previous active view so
         # the new tab matches the current header selection.
         if prev_provider:
             view._current_provider = prev_provider
+        if prev_model:
+            view._current_model = prev_model
         if self._views and len(self._views) > 1:
             view.cwd = self._views[0].cwd
         view.spawn_shell()
+        self._persist_tabs()
+        focus_mgr = get_component_focus_manager()
+        if focus_mgr.get_current_focus() == self.COMPONENT_ID:
+            self._on_focus_in()
+        else:
+            focus_mgr.set_focus(self.COMPONENT_ID)
 
     # ── CLI provider header logic ──────────────────────────────────────
 
@@ -354,13 +389,14 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         return _CLI_LABELS.get(view._current_provider or "", "AI")
 
     def _on_header_click(self, _button) -> None:
-        from ai.ai_terminal_view import _find_claude_binary, _find_copilot_binary
+        from ai.ai_terminal_view import _CLAUDE_MODELS, _COPILOT_MODELS, _find_claude_binary, _find_copilot_binary
         from shared.settings import get_setting
 
         claude_bin = _find_claude_binary()
         copilot_bin = _find_copilot_binary()
         active = self._active
         current = (active._current_provider if active else None) or get_setting("ai.provider", "")
+        current_model = (active._current_model if active else None) or get_setting("ai.model", "")
 
         items: list[dict] = []
         if claude_bin:
@@ -372,14 +408,35 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
                 {"label": f"{'✓ ' if current == 'copilot_cli' else '  '}Copilot", "action": "copilot_cli", "enabled": True}
             )
 
+        # Add model submenu for the active provider
+        models = []
+        if current == "claude_cli":
+            models = _CLAUDE_MODELS
+        elif current == "copilot_cli":
+            models = _COPILOT_MODELS
+
+        if models:
+            items.append({"label": "---"})
+            for m in models:
+                check = "✓ " if m == current_model else "  "
+                items.append({"label": f"{check}{m}", "action": f"model:{m}", "enabled": True})
+
         if not items:
             return
+
+        def _on_selected(action: str) -> None:
+            if action.startswith("model:"):
+                model = action[len("model:") :]
+                if active:
+                    active._on_model_selected(model)
+            else:
+                self._on_cli_selected(action)
 
         root = self.get_root()
         if root:
             from popups.nvim_context_menu import show_context_menu
 
-            show_context_menu(root, items, self._on_cli_selected, title="Select AI")
+            show_context_menu(root, items, _on_selected, title="Select AI")
 
     def _on_cli_selected(self, provider: str) -> None:
         from ai.ai_terminal_view import _CLI_LABELS
@@ -390,11 +447,30 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         label = _CLI_LABELS.get(provider, "AI")
         self._header.set_label(label)
 
+    def _view_idx(self, view) -> int:
+        """Return the current index of *view* in self._views, or -1 if not found."""
+        try:
+            return self._views.index(view)
+        except ValueError:
+            return -1
+
     def _on_title_inferred(self, view_idx: int, title: str) -> None:
         if 0 <= view_idx < len(self._tab_buttons):
             self._tab_buttons[view_idx].set_title(title)
+        if self._vertical_mode and 0 <= view_idx < len(self._views):
+            header = self._views[view_idx]._ai_header
+            header.title_label.set_label(title)
+            header.title_label.set_visible(True)
+        self._persist_tabs()
 
     def _on_processing_changed(self, view_idx: int, processing: bool) -> None:
+        if self._vertical_mode:
+            if 0 <= view_idx < len(self._views):
+                if processing:
+                    self._start_header_spinner(view_idx)
+                else:
+                    self._stop_header_spinner(view_idx)
+            return
         if view_idx < 0 or view_idx >= len(self._tab_buttons):
             return
         if processing:
@@ -404,28 +480,45 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
 
     def _start_tab_spinner(self, view_idx: int) -> None:
         self._stop_tab_spinner(view_idx)
-        spinner = Spinner()
         btn = self._tab_buttons[view_idx]
-        btn.close_btn.set_visible(True)
+        btn.close_btn.set_visible(False)
 
-        def tick():
-            if view_idx not in self._spinners:
-                return False
-            btn.close_btn.set_label(spinner.spin())
-            return True
-
-        timeout_id = GLib.timeout_add(80, tick)
-        self._spinners[view_idx] = {"spinner": spinner, "timeout_id": timeout_id}
-        btn.close_btn.set_label(spinner.spin())
+        gtk_spinner = Gtk.Spinner()
+        gtk_spinner.set_size_request(12, 12)
+        gtk_spinner.set_halign(Gtk.Align.CENTER)
+        gtk_spinner.set_valign(Gtk.Align.CENTER)
+        btn._content.append(gtk_spinner)
+        gtk_spinner.start()
+        self._spinners[view_idx] = {"widget": gtk_spinner}
 
     def _stop_tab_spinner(self, view_idx: int) -> None:
         state = self._spinners.pop(view_idx, None)
         if state:
-            GLib.source_remove(state["timeout_id"])
+            widget = state["widget"]
+            widget.stop()
+            parent = widget.get_parent()
+            if parent:
+                parent.remove(widget)
         if 0 <= view_idx < len(self._tab_buttons):
             btn = self._tab_buttons[view_idx]
             btn.close_btn.set_label("\u00d7")
             btn.close_btn.set_visible(btn._show_close)
+
+    # -- vertical-mode spinner (header label) --
+
+    def _start_header_spinner(self, view_idx: int) -> None:
+        self._stop_header_spinner(view_idx)
+        spinner_widget = self._views[view_idx]._ai_header.spinner_widget
+        spinner_widget.set_visible(True)
+        spinner_widget.start()
+        self._spinners[view_idx] = {"header": True}
+
+    def _stop_header_spinner(self, view_idx: int) -> None:
+        state = self._spinners.pop(view_idx, None)
+        if 0 <= view_idx < len(self._views):
+            spinner_widget = self._views[view_idx]._ai_header.spinner_widget
+            spinner_widget.stop()
+            spinner_widget.set_visible(False)
 
     def _on_view_maximize(self, name: str) -> None:
         if self.on_maximize:
@@ -489,17 +582,86 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
             self._maximized_view = None
             for v in self._views:
                 v.set_visible(True)
+                v.maximize_btn.remove_css_class("selected")
+                v.maximize_btn.set_tooltip_text("Maximize")
         else:
             # Maximize: hide all except this one
             self._maximized_view = view
             for v in self._views:
-                v.set_visible(v is view)
+                if v is view:
+                    v.set_visible(True)
+                else:
+                    v.set_visible(False)
+                    v.maximize_btn.remove_css_class("selected")
+                    v.maximize_btn.set_tooltip_text("Maximize")
+        # Also expand/restore the overall AI chat panel (global maximize)
+        if self.on_maximize:
+            self.on_maximize("ai_chat")
+
+    @property
+    def maximize_btn(self):
+        """Maximize button (stack-level in tab mode, active view in vertical mode)."""
+        if not self._vertical_mode and hasattr(self, "_stack_maximize_btn"):
+            return self._stack_maximize_btn
+        active = self._active
+        return active.maximize_btn if active else None
+
+    @property
+    def _is_maximized(self):
+        return getattr(self, "__is_maximized", False)
+
+    @_is_maximized.setter
+    def _is_maximized(self, value):
+        self.__is_maximized = value
+        # Sync CSS on per-view maximize buttons
+        for v in self._views:
+            if self._vertical_mode:
+                maximized_view = getattr(self, "_maximized_view", None)
+                if maximized_view and v is maximized_view and value:
+                    v.maximize_btn.add_css_class("selected")
+                    v.maximize_btn.set_tooltip_text("Restore")
+                else:
+                    v.maximize_btn.remove_css_class("selected")
+                    v.maximize_btn.set_tooltip_text("Maximize")
+            else:
+                if value:
+                    v.maximize_btn.add_css_class("selected")
+                    v.maximize_btn.set_tooltip_text("Restore")
+                else:
+                    v.maximize_btn.remove_css_class("selected")
+                    v.maximize_btn.set_tooltip_text("Maximize")
+        if not self._vertical_mode and hasattr(self, "_stack_maximize_btn"):
+            if value:
+                self._stack_maximize_btn.add_css_class("selected")
+                self._stack_maximize_btn.set_tooltip_text("Restore")
+            else:
+                self._stack_maximize_btn.remove_css_class("selected")
+                self._stack_maximize_btn.set_tooltip_text("Maximize")
+        if not self._vertical_mode or not self._views:
+            return
+        if value:
+            # Pane-level maximize: hide all views except the active one
+            active = self._views[self._active_idx] if 0 <= self._active_idx < len(self._views) else None
+            if active and not getattr(self, "_maximized_view", None):
+                self._maximized_view = active
+                for v in self._views:
+                    v.set_visible(v is active)
+        elif getattr(self, "_maximized_view", None):
+            # Restore: show all views
+            self._maximized_view = None
+            for v in self._views:
+                v.set_visible(True)
 
     def _update_vertical_focus_border(self):
         """In vertical mode, apply focus border to the active view only."""
+        maximized_view = getattr(self, "_maximized_view", None)
         for view in self._views:
             view.remove_css_class(self.FOCUS_CSS_CLASS)
             view.add_css_class(self.UNFOCUS_CSS_CLASS)
+            if maximized_view and view is maximized_view:
+                view.maximize_btn.add_css_class("selected")
+            elif not maximized_view:
+                view.maximize_btn.remove_css_class("selected")
         if 0 <= self._active_idx < len(self._views):
             active = self._views[self._active_idx]
             active.remove_css_class(self.UNFOCUS_CSS_CLASS)
@@ -644,7 +806,10 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
 
     def cleanup(self) -> None:
         for idx in list(self._spinners):
-            self._stop_tab_spinner(idx)
+            if self._vertical_mode:
+                self._stop_header_spinner(idx)
+            else:
+                self._stop_tab_spinner(idx)
         for view in self._views:
             view.cleanup()
 
@@ -679,7 +844,9 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         items = enumerate(self._tab_buttons) if not self._vertical_mode else enumerate(self._views)
         for i, item in items:
             if self._vertical_mode:
-                entry: dict = {"title": f"Chat {i + 1}"}
+                view = item
+                title = view._ai_header.title_label.get_label() or f"Chat {i + 1}"
+                entry: dict = {"title": title}
             else:
                 entry = {"title": item.get_title()}
             if i == 0:
@@ -689,6 +856,9 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
                 # Persist per-tab provider
                 if view._current_provider:
                     entry["provider"] = view._current_provider
+                # Persist per-tab model
+                if view._current_model:
+                    entry["model"] = view._current_model
                 # Persist per-tab session ID for individual session resume
                 # Validate session exists before saving
                 if hasattr(view, "validate_session_id"):

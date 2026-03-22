@@ -25,6 +25,7 @@ The `~/.zen_ide/` directory stores all user-specific data, configuration, and st
 ├── native_crash.log        # Native signal crash recovery
 ├── model_cache.json        # Cached AI model lists
 ├── font_cache.txt          # Cached Nerd Font detection
+├── ide_state.json          # Dynamic IDE editor state for AI context
 ├── ai_pids/                # AI process tracking (ephemeral)
 │   └── <pid>.txt           # PID file per IDE instance
 ├── notes/                  # Dev Pad notes storage
@@ -184,6 +185,31 @@ Cached result of Nerd Font detection. Stores the detected font family name to av
 
 ---
 
+### `ide_state.json`
+
+Dynamic editor state file updated on every tab switch, file open, and file close. Provides a real-time bridge between the Zen IDE editor and AI CLI terminals (Claude CLI, Copilot CLI) so that AI agents can query it mid-conversation for the user's current context.
+
+**Format:**
+```json
+{
+  "active_file": "/path/to/currently/viewed/file.py",
+  "open_files": ["/path/to/file1.py", "/path/to/file2.py"],
+  "workspace_folders": ["/path/to/project"],
+  "workspace_file": "",
+  "git_branch": "main"
+}
+```
+
+**How AI CLIs use this:**
+- Environment variables (`ZEN_ACTIVE_FILE`, `ZEN_OPEN_FILES`, `ZEN_WORKSPACE_FOLDERS`, `ZEN_GIT_BRANCH`) are set at CLI spawn time
+- A system prompt is appended (via `--append-system-prompt` for Claude CLI, `--system-prompt` for Copilot CLI) pointing to this file
+- The file is atomically updated so CLIs can read it safely at any time
+
+**Location:** `~/.zen_ide/ide_state.json`  
+**Source:** `src/shared/ide_state_writer.py`
+
+---
+
 ### `ai_pids/`
 
 Directory containing PID tracking files for AI subprocess management. Each running IDE instance creates a file named `<pid>.txt` containing the PIDs of any AI processes it spawned.
@@ -244,4 +270,5 @@ Files safe to delete (regenerated automatically):
 - `native_crash.log`
 - `model_cache.json`
 - `font_cache.txt`
+- `ide_state.json`
 - `ai_pids/` (entire directory)

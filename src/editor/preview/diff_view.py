@@ -1466,7 +1466,7 @@ class DiffView(FocusBorderMixin, Gtk.Box):
 
     def _set_language(self, file_path: str):
         """Set syntax highlighting language."""
-        from langs.language_detect import detect_language
+        from editor.langs.language_detect import detect_language
 
         language = detect_language(file_path)
         if language:

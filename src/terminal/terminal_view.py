@@ -88,11 +88,11 @@ class TerminalView(
         scrolled.add_css_class("terminal-scrolled")
         self._scrolled_window = scrolled
 
-        self.append(scrolled)
-
         self.terminal = Vte.Terminal()
         self._configure_terminal()
         scrolled.set_child(self.terminal)
+
+        self.append(scrolled)
 
         self._is_maximized = False
         self.on_maximize = None  # Callback: on_maximize(panel_name)
@@ -331,6 +331,16 @@ class TerminalView(
         if vadj is None:
             return False
 
+        # Compute scrollable range first — if there is nothing to scroll
+        # (e.g. alternate-screen mode), let VTE / ScrolledWindow handle
+        # the event so mouse-wheel forwarding to the CLI app still works.
+        lower = float(vadj.get_lower())
+        upper = float(vadj.get_upper())
+        page_size = float(vadj.get_page_size())
+        maximum = max(lower, upper - page_size)
+        if maximum <= lower:
+            return False
+
         consume, delta = map_terminal_scroll_delta(
             controller,
             dy,
@@ -342,11 +352,6 @@ class TerminalView(
             return False
 
         # Accumulate into scroll target
-        lower = float(vadj.get_lower())
-        upper = float(vadj.get_upper())
-        page_size = float(vadj.get_page_size())
-        maximum = max(lower, upper - page_size)
-
         if self._scroll_target is None:
             self._scroll_target = float(vadj.get_value())
         self._scroll_target = min(max(self._scroll_target + delta, lower), maximum)

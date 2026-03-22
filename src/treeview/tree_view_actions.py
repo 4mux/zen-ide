@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from gi.repository import Gdk, GLib
@@ -44,8 +45,8 @@ class TreeViewActionsMixin:
                 items.append({"label": "Open in Browser", "action": "open_in_browser", "icon": Icons.GLOBE})
             items.append({"label": "---"})
 
-        show_label = "Show in Finder" if len(selection) == 1 else "Show Selected in Finder"
-        items.append({"label": show_label, "action": "show_in_finder", "icon": Icons.FOLDER_OPEN})
+        show_label = "Show in Folder" if len(selection) == 1 else "Show Selected in Folder"
+        items.append({"label": show_label, "action": "show_in_folder", "icon": Icons.FOLDER_OPEN})
         copy_label = "Copy" if len(selection) == 1 else f"Copy {len(selection)} Items"
         items.append({"label": copy_label, "action": "copy_item", "icon": Icons.COPY})
         if len(selection) == 1 and self._copied_item_paths and any(path.exists() for path in self._copied_item_paths):
@@ -77,8 +78,8 @@ class TreeViewActionsMixin:
                 self._action_new_file(item)
             elif action == "new_folder":
                 self._action_new_folder(item)
-            elif action == "show_in_finder":
-                self._action_show_in_finder(item)
+            elif action == "show_in_folder":
+                self._action_show_in_folder(item)
             elif action == "copy_path":
                 self._action_copy_path(item)
             elif action == "copy_item":
@@ -212,12 +213,17 @@ class TreeViewActionsMixin:
         if os.path.exists(path):
             webbrowser.open(f"file://{path}")
 
-    def _action_show_in_finder(self, item):
-        """Show file in Finder/file manager."""
+    def _action_show_in_folder(self, item):
+        """Show file in system file manager."""
         for selected in self._get_action_items(item):
             path = str(selected.path)
-            if os.path.exists(path):
+            if not os.path.exists(path):
+                continue
+            if sys.platform == "darwin":
                 subprocess.run(["open", "-R", path], check=False)
+            elif sys.platform == "linux":
+                parent = os.path.dirname(path) if os.path.isfile(path) else path
+                subprocess.run(["xdg-open", parent], check=False)
 
     def _action_copy_path(self, item):
         """Copy path to clipboard."""

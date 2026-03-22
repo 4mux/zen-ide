@@ -18,7 +18,8 @@ from typing import Optional
 
 from gi.repository import GLib, Gtk, Vte
 
-from shared.settings import get_setting
+from shared.settings import get_setting, set_setting
+from terminal.terminal_jog_wheel import JogWheelScrollbarMixin
 from terminal.terminal_view import TerminalView
 
 _CLI_LABELS: dict[str, str] = {
@@ -78,7 +79,44 @@ def _strip_escape_fragments(text: str) -> str:
     return text.strip()
 
 
-class AITerminalView(TerminalView):
+# Managed marker to identify Zen IDE's section in copilot-instructions.md
+_ZEN_MARKER_START = "<!-- zen-ide-context-start -->"
+_ZEN_MARKER_END = "<!-- zen-ide-context-end -->"
+
+_COPILOT_INSTRUCTIONS_PATH = os.path.join(os.path.expanduser("~"), ".copilot", "copilot-instructions.md")
+
+
+def _write_copilot_instructions(context_block: str) -> None:
+    """Write/update the Zen IDE context section in Copilot's global instructions.
+
+    Preserves any existing user content outside the managed markers.
+    """
+    managed = f"{_ZEN_MARKER_START}\n{context_block}\n{_ZEN_MARKER_END}\n"
+
+    try:
+        existing = ""
+        if os.path.isfile(_COPILOT_INSTRUCTIONS_PATH):
+            with open(_COPILOT_INSTRUCTIONS_PATH, encoding="utf-8") as f:
+                existing = f.read()
+
+        # Replace existing managed block, or append
+        if _ZEN_MARKER_START in existing:
+            import re as _re
+
+            pattern = _re.escape(_ZEN_MARKER_START) + r".*?" + _re.escape(_ZEN_MARKER_END) + r"\n?"
+            updated = _re.sub(pattern, managed, existing, flags=_re.DOTALL)
+        else:
+            separator = "\n" if existing and not existing.endswith("\n") else ""
+            updated = existing + separator + managed
+
+        os.makedirs(os.path.dirname(_COPILOT_INSTRUCTIONS_PATH), exist_ok=True)
+        with open(_COPILOT_INSTRUCTIONS_PATH, "w", encoding="utf-8") as f:
+            f.write(updated)
+    except Exception:
+        pass
+
+
+class AITerminalView(JogWheelScrollbarMixin, TerminalView):
     """VTE-based AI terminal that runs claude or copilot CLI interactively.
 
     Inherits all VTE machinery (theme, scroll, shortcuts, font) from
@@ -87,17 +125,25 @@ class AITerminalView(TerminalView):
 
     COMPONENT_ID = "ai_chat"
 
-    def __init__(self, config_dir: str | None = None):
+    def __init__(self, config_dir: str | None = None, get_workspace_folders_callback=None, get_editor_context_callback=None):
         self._current_provider: str | None = None
+        self._current_model: str | None = None
         self._input_buf: list[str] = []
         self._title_inferred = False
         self._waiting_for_response = False
         self._commit_ready = False  # ignore commit signals until CLI is ready
+        self._in_escape_seq = False  # inside a VTE escape sequence
+        self._in_osc_seq = False  # inside an OSC (Operating System Command) sequence
+        self._idle_poll_id: int = 0  # GLib timer for PTY idle detection
+        self._last_contents_serial: int = 0  # bumped on contents-changed
         self._session_id: str | None = None  # Claude CLI session ID for resume
         self._resume_attempted = False  # True while a --resume spawn is settling
         self._resume_spawn_time: float = 0.0
+        self._jog_init_fields()
         self.on_title_inferred = None  # callback(title: str)
         self.on_processing_changed = None  # callback(processing: bool)
+        self._get_workspace_folders = get_workspace_folders_callback
+        self._get_editor_context = get_editor_context_callback
         super().__init__(config_dir=config_dir)
 
     # ------------------------------------------------------------------
@@ -119,22 +165,35 @@ class AITerminalView(TerminalView):
         self.append(hdr.box)
 
         scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.NEVER)
         scrolled.set_vexpand(True)
         scrolled.set_hexpand(True)
         scrolled.set_kinetic_scrolling(True)
         scrolled.add_css_class("terminal-scrolled")
         self._scrolled_window = scrolled
-        self.append(scrolled)
 
         self.terminal = Vte.Terminal()
         self._configure_terminal()
         scrolled.set_child(self.terminal)
+
+        overlay = self._jog_create_overlay(scrolled)
+        self.append(overlay)
+
         self._commit_handler_id = self.terminal.connect("commit", self._on_vte_commit)
+        self.terminal.connect("contents-changed", self._on_contents_changed)
 
         self._is_maximized = False
         self.on_maximize = None
         self.on_provider_changed = None
+
+    # ------------------------------------------------------------------
+    # Maximize (override TerminalView which hardcodes "terminal")
+    # ------------------------------------------------------------------
+
+    def _on_maximize_clicked(self, button):
+        """Delegate maximize to parent — state and CSS managed by window_panels."""
+        if hasattr(self, "on_maximize") and self.on_maximize:
+            self.on_maximize("ai_chat")
 
     # ------------------------------------------------------------------
     # CLI resolution
@@ -208,7 +267,24 @@ class AITerminalView(TerminalView):
         env = ensure_full_path(os.environ.copy())
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
-        env_list = [f"{k}={v}" for k, v in env.items()]
+
+        # IDE context: inject editor state as environment variables so
+        # AI CLIs can reference the active file, open tabs, and workspace.
+        editor_ctx = self._get_editor_context() if self._get_editor_context else {}
+        if editor_ctx.get("active_file"):
+            env["ZEN_ACTIVE_FILE"] = editor_ctx["active_file"]
+        if editor_ctx.get("open_files"):
+            env["ZEN_OPEN_FILES"] = ":".join(editor_ctx["open_files"])
+        if editor_ctx.get("workspace_folders"):
+            env["ZEN_WORKSPACE_FOLDERS"] = ":".join(editor_ctx["workspace_folders"])
+        if editor_ctx.get("workspace_file"):
+            env["ZEN_WORKSPACE_FILE"] = editor_ctx["workspace_file"]
+        if editor_ctx.get("git_branch"):
+            env["ZEN_GIT_BRANCH"] = editor_ctx["git_branch"]
+
+        from shared.ide_state_writer import get_state_file_path
+
+        env["ZEN_IDE_STATE_FILE"] = get_state_file_path()
 
         argv = [binary]
         self._resume_attempted = False
@@ -231,11 +307,39 @@ class AITerminalView(TerminalView):
             elif provider == "copilot_cli":
                 argv.append("--yolo")
 
+        # Model override: use per-tab model, then global setting, then CLI default.
+        # ai.model may be a per-provider dict like {"copilot_cli": "...", "claude_cli": "..."}.
+        model = self._current_model
+        if not model:
+            model_setting = get_setting("ai.model", "")
+            if isinstance(model_setting, dict):
+                model = model_setting.get(provider, "")
+            else:
+                model = model_setting or ""
+        if model:
+            argv.extend(["--model", str(model)])
+
+        # Multi-workspace: add extra workspace folders so the CLI can access
+        # all repos in the workspace, not just the cwd.
+        if self._get_workspace_folders:
+            cwd_abs = os.path.abspath(self.cwd or os.getcwd())
+            for folder in self._get_workspace_folders():
+                if os.path.abspath(folder) != cwd_abs:
+                    argv.extend(["--add-dir", folder])
+
+        # IDE context: append a system-prompt snippet so the AI knows about
+        # the user's current editor state and the dynamic state file.
+        self._append_ide_context_prompt(argv, provider, editor_ctx)
+
         # Reset commit readiness — CLI startup sends terminal capability
         # queries whose responses arrive via the commit signal and would
         # otherwise be captured as user input (the "Op Vte 7600 …" garbage).
         self._commit_ready = False
+        self._in_escape_seq = False
+        self._in_osc_seq = False
         self._input_buf.clear()
+
+        env_list = [f"{k}={v}" for k, v in env.items()]
 
         self.terminal.spawn_async(
             Vte.PtyFlags.DEFAULT,
@@ -275,6 +379,62 @@ class AITerminalView(TerminalView):
         """One-shot timeout: resume succeeded if the process is still alive."""
         self._resume_attempted = False
         return False
+
+    # ------------------------------------------------------------------
+    # IDE context prompt injection
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _append_ide_context_prompt(argv: list[str], provider: str | None, editor_ctx: dict) -> None:
+        """Append IDE context instructions to the CLI argv.
+
+        * **Claude CLI** — uses ``--append-system-prompt`` to inject context
+          directly into the model's system prompt.
+        * **Copilot CLI** — writes ``~/.copilot/copilot-instructions.md``
+          (global custom instructions loaded silently) and adds
+          ``--add-dir ~/.zen_ide`` so the model can read the dynamic
+          state file.
+
+        Both CLIs also receive ``ZEN_*`` environment variables (set in
+        ``spawn_shell``), and the dynamic state file is kept up-to-date
+        on every tab switch / file open / close.
+        """
+        if not editor_ctx:
+            return
+
+        from shared.ide_state_writer import get_state_file_path
+
+        lines: list[str] = []
+        lines.append("## Zen IDE Context")
+        lines.append("You are running inside Zen IDE. The user has the following editor state:")
+
+        if editor_ctx.get("active_file"):
+            lines.append(f"- Active file (currently viewing): {editor_ctx['active_file']}")
+        if editor_ctx.get("open_files"):
+            lines.append(f"- Open files: {', '.join(editor_ctx['open_files'])}")
+        if editor_ctx.get("workspace_folders"):
+            lines.append(f"- Workspace folders: {', '.join(editor_ctx['workspace_folders'])}")
+        if editor_ctx.get("workspace_file"):
+            lines.append(f"- Workspace file: {editor_ctx['workspace_file']}")
+        if editor_ctx.get("git_branch"):
+            lines.append(f"- Git branch: {editor_ctx['git_branch']}")
+
+        state_path = get_state_file_path()
+        lines.append(
+            f"\nThis state was captured at launch. For the latest editor state during this conversation, read: {state_path}"
+        )
+
+        prompt = "\n".join(lines)
+
+        if provider == "claude_cli":
+            argv.extend(["--append-system-prompt", prompt])
+        elif provider == "copilot_cli":
+            # Copilot CLI has no --system-prompt flag.  Instead, write
+            # the context into ~/.copilot/copilot-instructions.md (global
+            # custom instructions) which Copilot loads silently on start.
+            _write_copilot_instructions(prompt)
+            state_dir = os.path.dirname(state_path)
+            argv.extend(["--add-dir", state_dir])
 
     def _on_child_exited(self, terminal, status) -> None:
         """Handle CLI exit — detect resume failure and retry fresh."""
@@ -333,7 +493,24 @@ class AITerminalView(TerminalView):
         if provider == self._current_provider:
             return
         self._current_provider = provider
+        self._current_model = None  # new provider → reset model to default
         self._session_id = None  # new provider → new session
+        self._restart_cli()
+
+    def _on_model_selected(self, model: str) -> None:
+        """Switch this tab's model and restart the terminal."""
+        current = self._current_model
+        if not current:
+            model_setting = get_setting("ai.model", "")
+            if isinstance(model_setting, dict):
+                current = model_setting.get(self._current_provider, "")
+            else:
+                current = model_setting or ""
+        if model == current:
+            return
+        self._current_model = model
+        set_setting("ai.model", model, persist=True)
+        self._session_id = None  # new model → new session
         self._restart_cli()
 
     def _restart_cli(self) -> None:
@@ -343,6 +520,10 @@ class AITerminalView(TerminalView):
         self._title_inferred = False
         self._waiting_for_response = False
         self._commit_ready = False
+        self._in_escape_seq = False
+        self._in_osc_seq = False
+        self._stop_idle_poll()
+        self._hide_virtual_scrollbar_immediately()
         self._input_buf.clear()
         if callable(self.on_processing_changed):
             self.on_processing_changed(False)
@@ -507,7 +688,30 @@ class AITerminalView(TerminalView):
         if not self._commit_ready:
             return
         for ch in text:
+            # Skip escape sequences (e.g. focus-in/out \x1b[I / \x1b[O,
+            # cursor reports, bracketed-paste markers) so their trailing
+            # printable bytes aren't mistaken for real user input.
+            if ch == "\x1b":
+                self._in_escape_seq = True
+                self._in_osc_seq = False
+                continue
+            if self._in_escape_seq:
+                if not self._in_osc_seq:
+                    if ch == "]":
+                        # OSC sequence (\x1b]...BEL) — skip until BEL
+                        self._in_osc_seq = True
+                    elif ch.isalpha() or ch == "~":
+                        # CSI/short sequences end at an alpha char or ~
+                        self._in_escape_seq = False
+                else:
+                    # Inside OSC payload — ends at BEL (\x07)
+                    if ch == "\x07":
+                        self._in_escape_seq = False
+                        self._in_osc_seq = False
+                continue
+
             if ch in ("\r", "\n"):
+                self._vscroll_reset()
                 user_text = "".join(self._input_buf).strip()
                 # Strip leftover escape sequence fragments (e.g. terminal
                 # capability responses like "[?1;2c" or "[200~").
@@ -517,6 +721,7 @@ class AITerminalView(TerminalView):
                     # Start spinner — CLI is now processing
                     if not self._waiting_for_response:
                         self._waiting_for_response = True
+                        self._start_idle_poll()
                         if callable(self.on_processing_changed):
                             self.on_processing_changed(True)
 
@@ -533,6 +738,7 @@ class AITerminalView(TerminalView):
                     self._input_buf.pop()
                 if self._waiting_for_response:
                     self._waiting_for_response = False
+                    self._stop_idle_poll()
                     if callable(self.on_processing_changed):
                         self.on_processing_changed(False)
             elif ch >= " ":  # printable characters only
@@ -540,24 +746,75 @@ class AITerminalView(TerminalView):
                 # User is typing again — CLI returned to prompt, stop spinner
                 if self._waiting_for_response:
                     self._waiting_for_response = False
+                    self._stop_idle_poll()
                     if callable(self.on_processing_changed):
                         self.on_processing_changed(False)
 
     # ------------------------------------------------------------------
-    # Interface expected by window modules
+    # PTY idle detection — stop spinner when CLI waits for input
     # ------------------------------------------------------------------
 
-    # ------------------------------------------------------------------
-    # Scroll speed override — AI terminal content is denser, scroll faster
-    # ------------------------------------------------------------------
+    def _start_idle_poll(self) -> None:
+        """Begin polling the PTY to detect when the CLI becomes idle."""
+        self._stop_idle_poll()
+        self._last_contents_serial = 0
+        self._idle_prev_serial = -1
+        self._idle_poll_id = GLib.timeout_add(500, self._check_idle)
 
-    def _get_wheel_step_pixels(self) -> float:
-        speed = float(get_setting("scroll_speed", 0.4))
-        return max(1.0, 180.0 * speed)
+    def _stop_idle_poll(self) -> None:
+        if self._idle_poll_id:
+            GLib.source_remove(self._idle_poll_id)
+            self._idle_poll_id = 0
 
-    def _get_touchpad_step_pixels(self) -> float:
-        speed = float(get_setting("scroll_speed", 0.4))
-        return max(1.0, 36.0 * speed)
+    def _check_idle(self) -> bool:
+        """Periodically check whether the CLI process is waiting for input."""
+        if not self._waiting_for_response:
+            self._idle_poll_id = 0
+            return False
+
+        # If terminal content changed since last tick, CLI is still producing
+        # output — keep waiting.
+        if self._last_contents_serial != self._idle_prev_serial:
+            self._idle_prev_serial = self._last_contents_serial
+            return True  # keep polling
+
+        # Content has been stable for one poll interval.  Ask the OS whether
+        # the CLI process is the PTY foreground group (i.e. it is the one
+        # reading from the terminal, not a tool subprocess).
+        try:
+            pty = self.terminal.get_pty()
+            if pty is None:
+                return True
+            fd = pty.get_fd()
+            fg_pgid = os.tcgetpgrp(fd)
+            if fg_pgid == self.shell_pid:
+                self._waiting_for_response = False
+                self._idle_poll_id = 0
+                if callable(self.on_processing_changed):
+                    self.on_processing_changed(False)
+                return False
+        except OSError:
+            pass
+        return True  # keep polling
+
+    def _setup_scroll_controller(self) -> None:
+        """AI terminal: only observe wheel to show/hide the jog-wheel overlay."""
+        self._jog_setup_scroll_controller()
+
+    def _jog_scroll_lines(self, lines: int) -> None:
+        """Send simulated SGR mouse-wheel events to the CLI."""
+        cols = self.terminal.get_column_count()
+        rows = self.terminal.get_row_count()
+        mid_col = max(1, cols // 2)
+        mid_row = max(1, rows // 2)
+        button = 65 if lines > 0 else 64  # 65=down, 64=up
+        seq = f"\033[<{button};{mid_col};{mid_row}M".encode()
+        for _ in range(min(abs(lines), 15)):
+            self.terminal.feed_child(seq)
+
+    def _on_contents_changed(self, _terminal) -> None:
+        """Track CLI output for idle detection."""
+        self._last_contents_serial += 1
 
     # ------------------------------------------------------------------
     # Interface expected by window modules

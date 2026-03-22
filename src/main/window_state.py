@@ -237,7 +237,11 @@ class WindowStateMixin:
             from shared.settings import get_setting as _gs
 
             saved_ai_tabs = _gs("workspace.ai_tabs", None)
-            self.ai_chat = AITerminalStack(saved_tabs=saved_ai_tabs)
+            self.ai_chat = AITerminalStack(
+                saved_tabs=saved_ai_tabs,
+                get_workspace_folders_callback=self.tree_view.get_workspace_folders,
+                get_editor_context_callback=self._get_editor_context,
+            )
             self.ai_chat.set_size_request(DEFAULT_BOTTOM_PANEL_MIN_HEIGHT, DEFAULT_BOTTOM_PANEL_MIN_HEIGHT)
             self.ai_chat.add_css_class("terminal")
             self.bottom_paned.set_start_child(self.ai_chat)
@@ -535,6 +539,71 @@ class WindowStateMixin:
         GLib.timeout_add(0, self._deferred_background_init)
 
         return False  # Don't repeat
+
+    # ------------------------------------------------------------------
+    # IDE editor context for AI terminals
+    # ------------------------------------------------------------------
+
+    def _get_editor_context(self) -> dict:
+        """Return a dict describing the current editor state.
+
+        Called by ``AITerminalView`` at spawn time (for env vars / system
+        prompt) and by the dynamic state-file writer on tab switch events.
+        """
+        active_file = ""
+        open_files: list[str] = []
+        workspace_folders: list[str] = []
+        workspace_file = ""
+        git_branch = ""
+
+        try:
+            active_file = self.editor_view.get_current_file_path() or ""
+        except Exception:
+            pass
+
+        try:
+            for tab in self.editor_view.tabs.values():
+                if tab.file_path:
+                    open_files.append(tab.file_path)
+        except Exception:
+            pass
+
+        try:
+            workspace_folders = list(self.tree_view.get_workspace_folders() or [])
+        except Exception:
+            pass
+
+        try:
+            from shared.settings import get_setting
+
+            workspace_file = get_setting("workspace.workspace_file", "") or ""
+        except Exception:
+            pass
+
+        try:
+            from shared.git_manager import get_git_manager
+
+            git = get_git_manager()
+            target = active_file or (workspace_folders[0] if workspace_folders else "")
+            if target:
+                git_branch = git.get_current_branch(target) or ""
+        except Exception:
+            pass
+
+        return {
+            "active_file": active_file,
+            "open_files": open_files,
+            "workspace_folders": workspace_folders,
+            "workspace_file": workspace_file,
+            "git_branch": git_branch,
+        }
+
+    def _update_ide_state_file(self) -> None:
+        """Write the current editor context to ``~/.zen_ide/ide_state.json``."""
+        from shared.ide_state_writer import write_ide_state
+
+        ctx = self._get_editor_context()
+        write_ide_state(**ctx)
 
     def _deferred_background_init(self):
         """Background init: git status, file watcher, diagnostics — non-visible."""

@@ -267,3 +267,25 @@ class TestInferTitle:
         messages = [{"role": "user", "content": "how to setup docker"}]
         result = infer_title(messages)
         assert "Setup" in result
+
+    def test_smart_quote_contraction(self):
+        """Smart/curly quotes in contractions are handled like ASCII ones."""
+        # Right single quotation mark (U+2019) — most common smart quote
+        messages = [{"role": "user", "content": "scrollbar doesn\u2019t work"}]
+        result = infer_title(messages)
+        assert result is not None
+        assert "Doesn" not in result  # contraction should not leak partial words
+        assert "Fix" in result
+
+    def test_smart_quote_matches_ascii(self):
+        """Smart-quote and ASCII-quote inputs produce the same title."""
+        ascii_msg = [{"role": "user", "content": "terminal doesn't scroll"}]
+        smart_msg = [{"role": "user", "content": "terminal doesn\u2019t scroll"}]
+        assert infer_title(ascii_msg) == infer_title(smart_msg)
+
+    def test_doesnt_work_semantic_pattern(self):
+        """'X doesn't work' triggers fix semantic pattern."""
+        messages = [{"role": "user", "content": "ai terminal scrollbar doesn't work"}]
+        result = infer_title(messages)
+        assert "Fix" in result
+        assert "Scrollbar" in result

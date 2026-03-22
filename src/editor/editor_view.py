@@ -2069,7 +2069,7 @@ class EditorTab:
 
     def _set_language_from_file(self, file_path: str):
         """Set the source language and per-language indent width based on file."""
-        from langs.language_detect import detect_language
+        from editor.langs.language_detect import detect_language
 
         language = detect_language(file_path)
         if language:

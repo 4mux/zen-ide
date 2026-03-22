@@ -38,6 +38,19 @@ class AITerminalHeader:
         self.header_btn.add_css_class("terminal-header-btn")
         self.box.append(self.header_btn)
 
+        self.spinner_widget = Gtk.Spinner()
+        self.spinner_widget.set_size_request(16, 16)
+        self.spinner_widget.set_margin_start(6)
+        self.spinner_widget.set_visible(False)
+        self.box.append(self.spinner_widget)
+
+        self.title_label = Gtk.Label(label="")
+        self.title_label.set_margin_start(6)
+        self.title_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.title_label.set_visible(False)
+        self.title_label.add_css_class("dim-label")
+        self.box.append(self.title_label)
+
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
         self.box.append(spacer)
