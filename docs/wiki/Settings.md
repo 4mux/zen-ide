@@ -86,15 +86,12 @@ Each font component has `family`, `size`, and `weight` sub-keys:
 | Setting | Default | Type | ⚙️ | Description |
 |---|---|---|---|---|
 | `ai.is_enabled` | `true` | bool | | Master AI toggle |
-| `ai.provider` | `""` | string | | `"copilot_api"`, `"anthropic_api"`, `"openai_api"`, `""` (auto-detect) |
+| `ai.provider` | `""` | string | | `""`, `"claude_cli"`, or `"copilot_cli"` (`""` = auto-detect, prefers Claude) |
+| `ai.model` | `""` | string | | Optional chat CLI model override; empty uses the CLI default |
 | `ai.show_inline_suggestions` | `true` | bool | ⚙️ | Ghost text inline completions |
 | `ai.yolo_mode` | `true` | bool | | Skip AI tool-use confirmations |
-| `ai.model.copilot_api` | `"claude-sonnet-4"` | string | | Copilot API model |
-| `ai.model.anthropic_api` | `"claude-sonnet-4-20250514"` | string | | Anthropic API model |
-| `ai.model.openai_api` | `"gpt-4.1"` | string | | OpenAI API model |
-| `ai.inline_completion.trigger_delay_ms` | `200` | int | | Completion request debounce (ms) |
-| `ai.inline_completion.model` | `"gpt-4.1"` | string | | Inline completion model |
-| `ai.auto_scroll_on_output` | `true` | bool | ⚙️ | Auto-scroll chat on new output |
+| `ai.inline_completion.trigger_delay_ms` | `500` | int | | Completion request debounce (ms) |
+| `ai.inline_completion.model` | `"gpt-4.1-mini"` | string | | Inline completion model |
 
 ## Status Bar
 

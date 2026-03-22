@@ -21,13 +21,14 @@ For quick size changes, use `Cmd++` / `Cmd+-` / `Cmd+0`.
 
 ### How do I set up AI features?
 
-Zen IDE supports three AI providers — all via direct HTTP API (no CLI tools needed):
+Zen IDE AI chat is not API-based anymore. It runs the `claude` or `copilot` CLI inside the integrated AI Terminal:
 
-- **Copilot API** — auto-detected if you have GitHub Copilot (zero setup)
-- **Anthropic API** — paste your API key in the IDE
-- **OpenAI API** — paste your API key in the IDE
+- **Claude CLI** — install `claude` and run `claude login`
+- **Copilot CLI** — install `copilot` and run `copilot auth`
 
-Open AI chat → click provider selector → choose a provider. See [AI Setup](AI-Setup) for details.
+Inline ghost text suggestions still use Copilot-backed auth from your machine.
+
+Open AI chat → click provider selector → choose Claude or Copilot. See [AI Setup](AI-Setup) for details.
 
 ### How do I disable AI suggestions?
 

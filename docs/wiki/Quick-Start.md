@@ -43,12 +43,15 @@ Split terminals with the **+** button in the terminal header.
 
 ## 5. AI Chat
 
-Click the AI chat panel on the right, or look for the AI tab. Start typing your question. Zen supports:
-- **Copilot API** — auto-detected if you use GitHub Copilot (zero setup)
-- **Anthropic API** — paste your API key in the provider setup
-- **OpenAI API** — paste your API key in the provider setup
+Click the AI chat panel on the right, or look for the AI tab. Start typing your question.
 
-The AI provider is auto-detected. Switch providers via the dropdown in the chat header.
+AI chat is not API-based anymore:
+- **Claude CLI** — install `claude`, then run `claude login`
+- **Copilot CLI** — install `copilot`, then run `copilot auth`
+
+Zen auto-detects the available CLI and lets you switch providers via the dropdown in the chat header.
+
+Inline ghost text suggestions remain separate and still use Copilot-backed auth from your machine.
 
 ## 6. Customise
 

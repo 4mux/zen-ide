@@ -126,23 +126,12 @@ Controls text rendering quality. Platform-specific behaviour:
 | Setting | Default | ⚙️ | Description |
 |---------|---------|---|-------------|
 | `ai.is_enabled` | `true` | | Master toggle for AI features. When `false`, hides the AI chat panel and the terminal expands to fill the bottom area. |
-| `ai.provider` | `""` (auto-detect) | | Active AI provider. Values: `"copilot_api"`, `"anthropic_api"`, `"openai_api"`, or `""` for auto-detection. |
+| `ai.provider` | `""` (auto-detect) | | Active AI chat provider. Values: `"claude_cli"`, `"copilot_cli"`, or `""` for auto-detection (prefers Claude). |
+| `ai.model` | `""` | | Optional AI chat CLI model override. Empty uses the CLI default. |
 | `ai.show_inline_suggestions` | `true` | ⚙️ | Show AI-powered inline code completion suggestions (ghost text). |
-| `ai.yolo_mode` | `true` | | Unlimited tool calls per message (up to `ai.max_tool_rounds` safety ceiling). When `false`, stops after 25 tool calls and asks to continue. |
-| `ai.max_tool_rounds` | `25` | | Hard ceiling on tool-use rounds in yolo mode. Prevents runaway loops from burning tokens. |
-| `ai.context_truncation` | `true` | | Truncate old tool results in long agentic sessions to reduce token cost. |
-| `ai.max_context_chars` | `80000` | | Hard cap on total serialised conversation size (chars). ~20K tokens. |
-| `ai.context_injection.current_file` | `true` | | Include current file contents in the AI system prompt (saves tool calls). |
-| `ai.context_injection.open_tabs` | `true` | | Include list of open editor tabs in the AI system prompt. |
-| `ai.context_injection.git_info` | `true` | | Include git branch, status, and diff stat in the AI system prompt. |
-| `ai.context_injection.diagnostics` | `true` | | Include current errors and warnings in the AI system prompt. |
-| `ai.context_injection.workspace_tree` | `false` | | Include workspace directory structure in the AI system prompt. Disabled by default (can be large). |
-| `ai.model.copilot_api` | `"claude-sonnet-4"` | | Selected model when using the Copilot API provider. |
-| `ai.model.anthropic_api` | `"claude-sonnet-4-20250514"` | | Selected model when using the Anthropic API provider. |
-| `ai.model.openai_api` | `"gpt-4.1"` | | Selected model when using the OpenAI API provider. |
-| `ai.inline_completion.trigger_delay_ms` | `200` | | Debounce delay (ms) before requesting an inline completion after typing stops. |
-| `ai.inline_completion.model` | `"gpt-4.1"` | | Model for inline completions — defaults to fastest available. |
-| `ai.auto_scroll_on_output` | `true` | ⚙️ | Auto-scroll the AI chat to the bottom while the AI streams a response. Only scrolls if the user is already at the bottom; scrolling up disables follow until the next response. |
+| `ai.yolo_mode` | `true` | | Enables the CLI's skip-confirmation mode for AI chat (`--dangerously-skip-permissions` for Claude, `--yolo` for Copilot). |
+| `ai.inline_completion.trigger_delay_ms` | `500` | | Debounce delay (ms) before requesting an inline completion after typing stops. |
+| `ai.inline_completion.model` | `"gpt-4.1-mini"` | | Model for inline completions. |
 
 ---
 

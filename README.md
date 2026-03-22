@@ -27,7 +27,7 @@
 - 🔍 **Search** — Quick Open (`Cmd+P`), Global Search (`Cmd+Shift+F`), Go to Definition (`Cmd+Click`)
 - 👁️ **File Previews** — Markdown, HTML, OpenAPI/Swagger, images, hex viewer
 - 🔀 **Git** — Gutter diff markers, side-by-side diff view, commit history navigation, inline revert
-- 🤖 **AI Chat** — GitHub Copilot and Anthropic via direct HTTP API with parallel sessions, inline ghost text, streaming responses
+- 🤖 **AI Chat** — Integrated AI Terminal running `claude` or `copilot` CLI with multi-tab sessions, plus inline ghost text completions
 - 💻 **Terminal** — VTE with 256-color support, file path linking, shell aliases, workspace folder picker
 - 📝 **Dev Pad** (`Cmd+.`) — Activity tracking, notes, quick resume links
 - 🎨 **Sketch Pad** (`Cmd+Shift+D`) — ASCII/Unicode diagram editor, opens `.zen_sketch` files in editor with box-drawing shapes, arrows, export to PNG
@@ -69,12 +69,12 @@ Syntax highlighting via GtkSourceView built-in specs (100+ languages). .
 
 ## AI Setup
 
-Zen IDE uses direct HTTP API calls for AI — no CLI tools or Node.js needed.
+Zen IDE runs the `claude` or `copilot` CLI directly inside the integrated AI Terminal.
 
-- **Copilot API** — auto-detected if you use GitHub Copilot in any editor (zero setup)
-- **Anthropic API** — paste your API key in the IDE
+- **AI chat** — install/authenticate the Claude CLI and/or GitHub Copilot CLI; Zen auto-detects what is available
+- **Inline completions** — ghost text suggestions are still powered by Copilot auth detected from your local machine
 
-Open AI chat → click provider dropdown → select a provider. See [`docs/wiki/AI-Setup.md`](docs/wiki/AI-Setup.md) for details.
+Open AI chat → click the provider dropdown → choose Claude or Copilot. See [`docs/wiki/AI-Setup.md`](docs/wiki/AI-Setup.md) for details.
 
 ## Makefile Commands
 
