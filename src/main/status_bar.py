@@ -143,8 +143,16 @@ class StatusBar(Gtk.Box):
         self._mode_label = Gtk.Label(label="")
         self._mode_label.add_css_class("status-mode-text")
         self._mode_label.set_visible(False)
+        self._mode_box.append(self._mode_label)
+
+        # Vim command text (partial commands, :ex commands)
+        self._vim_command_label = Gtk.Label(label="")
+        self._vim_command_label.add_css_class("status-mode-text")
+        self._vim_command_label.set_margin_start(6)
+        self._vim_command_label.set_visible(False)
 
         left_box.append(self._mode_box)
+        left_box.append(self._vim_command_label)
 
         # Inspect mode indicator (shown when widget inspector is active)
         self._inspect_label = Gtk.Label(label="INSPECT")
@@ -588,6 +596,75 @@ class StatusBar(Gtk.Box):
     def set_inspect_mode(self, active: bool):
         """Show or hide the INSPECT mode indicator."""
         self._inspect_label.set_visible(active)
+
+    # Vim mode colors (CSS-safe hex for inline styling)
+    _VIM_MODE_COLORS = {
+        "NORMAL": "#98c379",  # green
+        "INSERT": "#61afef",  # blue
+        "VISUAL": "#e5c07b",  # orange/yellow
+        "V-LINE": "#e5c07b",
+        "V-BLOCK": "#e5c07b",
+        "REPLACE": "#e06c75",  # red
+        "COMMAND": "#c678dd",  # purple
+        "SEARCH": "#c678dd",
+    }
+
+    def set_vim_mode(self, mode: str):
+        """Update the vim mode indicator in the status bar."""
+        if not mode:
+            self._mode_label.set_visible(False)
+            self._vim_command_label.set_visible(False)
+            return
+
+        old_mode = self._mode_label.get_label()
+        self._mode_label.set_visible(True)
+
+        color = self._VIM_MODE_COLORS.get(mode, "#abb2bf")
+        self._mode_label.set_markup(f'<span foreground="{color}" weight="bold">{mode}</span>')
+
+        # Flash mode box background on mode change
+        if old_mode and old_mode != mode:
+            self._flash_mode(color)
+
+    def set_vim_command(self, mode: str, command: str):
+        """Update the vim command text display (partial keys or :ex commands)."""
+        if command:
+            self._vim_command_label.set_label(command)
+            self._vim_command_label.set_visible(True)
+        else:
+            self._vim_command_label.set_visible(False)
+
+    _flash_provider: Gtk.CssProvider | None = None
+    _flash_timer: int = 0
+
+    def _flash_mode(self, color: str):
+        """Brief background flash on mode box when vim mode changes."""
+        display = Gdk.Display.get_default()
+        if not display:
+            return
+
+        # Cancel previous flash
+        if self._flash_timer:
+            GLib.source_remove(self._flash_timer)
+            self._flash_timer = 0
+        if self._flash_provider:
+            Gtk.StyleContext.remove_provider_for_display(display, self._flash_provider)
+
+        # Apply flash background
+        css = f".status-mode {{ background-color: alpha({color}, 0.35); }}"
+        self._flash_provider = Gtk.CssProvider()
+        self._flash_provider.load_from_data(css.encode())
+        Gtk.StyleContext.add_provider_for_display(display, self._flash_provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 2)
+
+        # Remove after 200ms
+        def _clear_flash():
+            if self._flash_provider:
+                Gtk.StyleContext.remove_provider_for_display(display, self._flash_provider)
+                self._flash_provider = None
+            self._flash_timer = 0
+            return False
+
+        self._flash_timer = GLib.timeout_add(200, _clear_flash)
 
     def set_position(self, line: int, col: int, total_lines: int):
         """Update cursor position and percentage (throttled to ~30fps)."""

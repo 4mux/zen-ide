@@ -64,6 +64,12 @@ class KeyBindings:
     # Reset layout to default positions
     RESET_LAYOUT = f"{_MOD_SHIFT}0"
 
+    # Cycle focus between panels
+    CYCLE_FOCUS_RIGHT = "<Control><Shift>Right"
+    CYCLE_FOCUS_LEFT = "<Control><Shift>Left"
+    CYCLE_FOCUS_UP = "<Control><Shift>Up"
+    CYCLE_FOCUS_DOWN = "<Control><Shift>Down"
+
     # Toggle all UI panels (tree, terminal, etc.)
     SHOW_UI = f"{_MOD_SHIFT}u"
 
@@ -153,6 +159,10 @@ class KeyBindings:
                 "AI & Panels",
                 [
                     ("AI History", f"{mod}+H"),
+                    ("Focus Next Panel", "Ctrl+Shift+Right"),
+                    ("Focus Prev Panel", "Ctrl+Shift+Left"),
+                    ("Focus Editor (Up)", "Ctrl+Shift+Up"),
+                    ("Focus Bottom (Down)", "Ctrl+Shift+Down"),
                     ("Maximize Focused Panel", f"{mod}+Shift+\\"),
                     ("Maximize Window", f"{mod}+Shift+0"),
                     ("Widget Inspector", f"{mod}+Shift+I"),

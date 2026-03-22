@@ -560,7 +560,7 @@ class TerminalStack(FocusBorderMixin, Gtk.Box):
     def grab_focus(self):
         t = self._active
         if t:
-            t.grab_focus()
+            t.terminal.grab_focus()
 
     # ── Proxied methods (all terminals) ───────────────────────────────
 

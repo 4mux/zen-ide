@@ -597,6 +597,23 @@ class ZenIDEWindow(
 
     def _on_global_key_pressed(self, controller, keyval, keycode, state):
         """Handle global key shortcuts (capture phase)."""
+        mods = state & Gtk.accelerator_get_default_mod_mask()
+
+        # Ctrl+Shift+Arrow: cycle panel focus
+        if mods == (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
+            if keyval == Gdk.KEY_Right:
+                GLib.idle_add(self._on_cycle_focus_right, None, None)
+                return True
+            if keyval == Gdk.KEY_Left:
+                GLib.idle_add(self._on_cycle_focus_left, None, None)
+                return True
+            if keyval == Gdk.KEY_Up:
+                GLib.idle_add(self._on_cycle_focus_up, None, None)
+                return True
+            if keyval == Gdk.KEY_Down:
+                GLib.idle_add(self._on_cycle_focus_down, None, None)
+                return True
+
         # Escape closes the find bar regardless of focus
         if (
             keyval == Gdk.KEY_Escape

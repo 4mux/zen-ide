@@ -402,6 +402,8 @@ class WindowStateMixin:
         self.editor_view.on_cursor_position_changed = self._on_cursor_position_changed
         self.editor_view.on_diagnostics_changed = self._on_diagnostics_changed
         self.editor_view.on_gutter_diagnostic_clicked = self._on_diagnostics_clicked
+        self.editor_view.on_vim_mode_changed = self.status_bar_widget.set_vim_mode
+        self.editor_view.on_vim_command_changed = self.status_bar_widget.set_vim_command
         self.status_bar_widget.on_diagnostics_clicked = self._on_diagnostics_clicked
         self.status_bar_widget.set_workspace_folders(
             self.tree_view.get_workspace_folders(),

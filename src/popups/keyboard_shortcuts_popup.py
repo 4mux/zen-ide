@@ -25,6 +25,11 @@ class KeyboardShortcutsPopup(NvimPopup):
         """Create the shortcuts list content."""
         shortcuts_data = KeyBindings.get_shortcut_categories()
 
+        from shared.settings import get_setting
+
+        if get_setting("behavior.is_nvim_emulation_enabled", False):
+            shortcuts_data = shortcuts_data + _vim_shortcut_categories()
+
         # Scrolled window for shortcuts
         self._scrolled = Gtk.ScrolledWindow()
         self._scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -104,3 +109,104 @@ def show_keyboard_shortcuts(parent: Gtk.Window):
     popup = KeyboardShortcutsPopup(parent)
     popup.present()
     return popup
+
+
+def _vim_shortcut_categories() -> list:
+    """Vim command categories for the keyboard shortcuts popup."""
+    return [
+        (
+            "Vim — Modes",
+            [
+                ("Normal mode", "Escape / Ctrl+["),
+                ("Insert before", "i"),
+                ("Insert at line start", "I"),
+                ("Append after", "a"),
+                ("Append at line end", "A"),
+                ("Open line below", "o"),
+                ("Open line above", "O"),
+                ("Visual (char)", "v"),
+                ("Visual (line)", "V"),
+                ("Visual (block)", "Ctrl+V"),
+                ("Replace mode", "R"),
+                ("Command line", ":"),
+                ("Search forward", "/"),
+                ("Search backward", "?"),
+            ],
+        ),
+        (
+            "Vim — Movement",
+            [
+                ("Left / Down / Up / Right", "h / j / k / l"),
+                ("Word forward / back", "w / b"),
+                ("Word end", "e"),
+                ("Line start / end", "0 / $"),
+                ("First non-blank", "^"),
+                ("File start / end", "gg / G"),
+                ("Go to line N", "{N}G"),
+                ("Paragraph up / down", "{ / }"),
+                ("Find char forward", "f{char}"),
+                ("Find char backward", "F{char}"),
+                ("Match bracket", "%"),
+                ("Half page down / up", "Ctrl+D / Ctrl+U"),
+                ("Screen top / mid / bot", "H / M / L"),
+            ],
+        ),
+        (
+            "Vim — Editing",
+            [
+                ("Delete", "d{motion}"),
+                ("Delete line", "dd"),
+                ("Change", "c{motion}"),
+                ("Change line", "cc"),
+                ("Yank (copy)", "y{motion}"),
+                ("Yank line", "yy"),
+                ("Paste after / before", "p / P"),
+                ("Delete char", "x"),
+                ("Replace char", "r{char}"),
+                ("Undo / Redo", "u / Ctrl+R"),
+                ("Repeat last change", "."),
+                ("Join lines", "J"),
+                ("Indent / Unindent", ">> / <<"),
+                ("Toggle case", "~"),
+            ],
+        ),
+        (
+            "Vim — Text Objects",
+            [
+                ("Inner word", "iw"),
+                ("A word", "aw"),
+                ("Inner quotes", "i\" / i' / i`"),
+                ("Inner parens", "i( / i[ / i{"),
+                ("Inner tag", "it"),
+                ("A quotes", "a\" / a' / a`"),
+                ("A parens", "a( / a[ / a{"),
+            ],
+        ),
+        (
+            "Vim — Search & Macros",
+            [
+                ("Search forward", "/{pattern}"),
+                ("Search backward", "?{pattern}"),
+                ("Next / prev match", "n / N"),
+                ("Word under cursor", "* / #"),
+                ("Record macro", "q{a-z}"),
+                ("Stop recording", "q"),
+                ("Play macro", "@{a-z}"),
+                ("Replay last macro", "@@"),
+            ],
+        ),
+        (
+            "Vim — Ex Commands",
+            [
+                ("Save file", ":w"),
+                ("Close tab", ":q"),
+                ("Force close", ":q!"),
+                ("Save and close", ":wq"),
+                ("Open file", ":e {path}"),
+                ("New tab", ":tabnew"),
+                ("Next / prev tab", ":tabn / :tabp"),
+                ("Find & replace", ":%s/old/new/g"),
+                ("Clear highlights", ":noh"),
+            ],
+        ),
+    ]

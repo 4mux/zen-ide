@@ -774,7 +774,16 @@ class WindowLayoutMixin:
         if hasattr(self.terminal_view, "terminal"):
             add_focus_tracker(self.terminal_view.terminal, "terminal", "terminal")
 
-        # AI terminal focus - the VTE widget handles its own focus via click controller
+        # AI chat focus - track on the container box (catches any child VTE focus)
+        if self.ai_chat:
+            ai_focus_ctrl = Gtk.EventControllerFocus()
+
+            def on_ai_focus_enter(c):
+                self._focused_panel = "ai_chat"
+                focus_mgr.set_focus("ai_chat")
+
+            ai_focus_ctrl.connect("enter", on_ai_focus_enter)
+            self.ai_chat.add_controller(ai_focus_ctrl)
 
     def _setup_file_drop_target(self, widget):
         """Set up drag-and-drop target to open external files dragged into the IDE."""

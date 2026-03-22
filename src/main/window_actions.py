@@ -347,6 +347,73 @@ class WindowActionsMixin:
         self._focused_panel = "ai_chat"
         self.ai_chat.focus_input()
 
+    # Panel order for Ctrl+Left/Right cycling (left-to-right in layout)
+    _PANEL_ORDER = ("tree", "editor", "ai_chat", "terminal")
+    _PANEL_COMPONENT_ID = {
+        "tree": "treeview",
+        "editor": "editor",
+        "ai_chat": "ai_chat",
+        "terminal": "terminal",
+    }
+
+    def _focus_panel(self, panel: str) -> None:
+        """Give keyboard focus to the named panel."""
+        from shared.focus_manager import get_component_focus_manager
+
+        self._focused_panel = panel
+        if panel in ("ai_chat", "terminal"):
+            self._last_bottom_panel = panel
+        get_component_focus_manager().set_focus(self._PANEL_COMPONENT_ID[panel])
+
+        if panel == "tree":
+            if not self.tree_view.get_visible():
+                self.tree_view.set_visible(True)
+            self.tree_view.focus_tree()
+        elif panel == "editor":
+            tab = self.editor_view._get_current_tab()
+            if tab:
+                tab.view.grab_focus()
+        elif panel == "ai_chat":
+            self._ensure_bottom_panels()
+            self.ai_chat.focus_input()
+        elif panel == "terminal":
+            self._ensure_bottom_panels()
+            self.terminal_view.grab_focus()
+
+    def _ensure_bottom_panels(self) -> None:
+        """Make sure bottom panels are created and visible."""
+        if not self._bottom_panels_created:
+            self._create_bottom_panels()
+        if not self.bottom_paned.get_visible():
+            self.bottom_paned.set_visible(True)
+        if self.right_paned.get_position() >= self.right_paned.get_allocated_height() - 40:
+            h = self.right_paned.get_allocated_height()
+            self.right_paned.set_position(int(h * 0.7))
+
+    def _on_cycle_focus_right(self, action, param):
+        """Cycle focus to the next panel (wraps around)."""
+        order = self._PANEL_ORDER
+        idx = order.index(self._focused_panel) if self._focused_panel in order else 0
+        self._focus_panel(order[(idx + 1) % len(order)])
+
+    def _on_cycle_focus_left(self, action, param):
+        """Cycle focus to the previous panel (wraps around)."""
+        order = self._PANEL_ORDER
+        idx = order.index(self._focused_panel) if self._focused_panel in order else 0
+        self._focus_panel(order[(idx - 1) % len(order)])
+
+    def _on_cycle_focus_up(self, action, param):
+        """Move focus from bottom panels to editor."""
+        if self._focused_panel in ("ai_chat", "terminal"):
+            self._focus_panel("editor")
+
+    def _on_cycle_focus_down(self, action, param):
+        """Move focus from editor/tree to the last-used bottom panel."""
+        if self._focused_panel in ("editor", "tree"):
+            self._focus_panel(self._last_bottom_panel)
+
+    _last_bottom_panel = "terminal"
+
     def _on_stop_ai(self, action, param):
         """Stop AI generation if processing, or close diff view."""
         if self.ai_chat.is_processing():

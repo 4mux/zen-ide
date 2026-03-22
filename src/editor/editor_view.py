@@ -787,6 +787,10 @@ class EditorTab:
         # Inline AI suggestions (ghost text) — lazy init on first keypress
         self._inline_completion = None
 
+        # Vim mode (GtkSource.VimIMContext)
+        self._vim_manager = None
+        self._init_vim_mode()
+
     # Bracket pairs for auto-close
     BRACKET_PAIRS = {
         "(": ")",
@@ -810,6 +814,31 @@ class EditorTab:
         except Exception:
             pass
         return self._inline_completion
+
+    def _init_vim_mode(self):
+        """Initialise vim mode manager if the setting is enabled."""
+        if not get_setting("behavior.is_nvim_emulation_enabled", False):
+            return
+
+        from .vim_mode import VimModeManager
+
+        self._vim_manager = VimModeManager(
+            self.view,
+            on_mode_changed=self._on_vim_mode_changed,
+            on_command_changed=self._on_vim_command_changed,
+        )
+
+    # Callbacks for vim status bar updates — set by EditorView
+    on_vim_mode_changed: Callable[[str], None] | None = None
+    on_vim_command_changed: Callable[[str, str], None] | None = None
+
+    def _on_vim_mode_changed(self, mode: str):
+        if self.on_vim_mode_changed:
+            self.on_vim_mode_changed(mode)
+
+    def _on_vim_command_changed(self, mode: str, command: str):
+        if self.on_vim_command_changed:
+            self.on_vim_command_changed(mode, command)
 
     def _configure_view(self):
         """Configure the source view settings."""
@@ -1045,6 +1074,15 @@ class EditorTab:
         if keyval == Gdk.KEY_Escape and self._autocomplete.has_active_tab_stops():
             self._autocomplete.clear_tab_stops()
             return True
+
+        # Vim mode: route keys through VimIMContext
+        # Let Cmd+key shortcuts pass through to Zen (save, open, close, etc.)
+        if self._vim_manager and self._vim_manager.is_enabled():
+            is_cmd_key = bool(state & Gdk.ModifierType.META_MASK)
+            if not is_cmd_key:
+                event = controller.get_current_event()
+                if event and self._vim_manager.filter_keypress(event):
+                    return True
 
         # Ctrl+Space or Cmd+Space triggers autocomplete
         is_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
@@ -2435,6 +2473,10 @@ class EditorView(FocusBorderMixin, Gtk.Box):
         self.on_tabs_empty: Callable[[], None] | None = None
         # Callback for when any tab is closed (for persisting open files)
         self.on_tab_closed: Callable[[], None] | None = None
+        # Callback for vim mode changes (for status bar)
+        self.on_vim_mode_changed: Callable[[str], None] | None = None
+        # Callback for vim command text changes (for status bar)
+        self.on_vim_command_changed: Callable[[str, str], None] | None = None
 
         # Create notebook for tabs
         self.notebook = Gtk.Notebook()
@@ -2472,6 +2514,11 @@ class EditorView(FocusBorderMixin, Gtk.Box):
         # Subscribe to theme changes so all editor tabs update
         subscribe_theme_change(self._on_theme_change)
 
+        # Subscribe to vim mode setting changes for runtime toggle
+        from themes import subscribe_settings_change
+
+        subscribe_settings_change(self._on_setting_change)
+
     def _on_theme_change(self, theme):
         """Re-apply theme to all open editor tabs, preserving scroll position."""
         for tab in self.tabs.values():
@@ -2480,6 +2527,42 @@ class EditorView(FocusBorderMixin, Gtk.Box):
             tab._apply_theme()
             if vadj and scroll_pos > 0:
                 GLib.idle_add(lambda v=vadj, p=scroll_pos: v.set_value(p) or False)
+
+    def _on_setting_change(self, key: str, value):
+        """Handle settings changes — toggle vim mode at runtime."""
+        if key == "behavior.is_nvim_emulation_enabled":
+            if value:
+                self._enable_vim_all_tabs()
+            else:
+                self._disable_vim_all_tabs()
+
+    def _enable_vim_all_tabs(self):
+        """Enable vim mode on all open tabs."""
+        from .vim_mode import VimModeManager
+
+        for tab in self.tabs.values():
+            vm = getattr(tab, "_vim_manager", None)
+            if vm and not vm.is_enabled():
+                vm.enable()
+            elif not vm:
+                tab._vim_manager = VimModeManager(
+                    tab.view,
+                    on_mode_changed=tab._on_vim_mode_changed,
+                    on_command_changed=tab._on_vim_command_changed,
+                )
+                self._wire_vim_callbacks(tab)
+        self._update_vim_mode_for_current_tab()
+
+    def _disable_vim_all_tabs(self):
+        """Disable vim mode on all open tabs."""
+        for tab in self.tabs.values():
+            vm = getattr(tab, "_vim_manager", None)
+            if vm and vm.is_enabled():
+                vm.disable()
+        if self.on_vim_mode_changed:
+            self.on_vim_mode_changed("")
+        if self.on_vim_command_changed:
+            self.on_vim_command_changed("", "")
 
     def _create_find_bar(self):
         """Create the find & replace bar."""
@@ -3024,6 +3107,9 @@ class EditorView(FocusBorderMixin, Gtk.Box):
         # Connect Cmd+Click navigation callback
         tab.set_cmd_click_callback(self._on_cmd_click)
 
+        # Wire vim mode callbacks for status bar
+        self._wire_vim_callbacks(tab)
+
         # Switch to the new tab
         if switch_to:
             self.notebook.set_current_page(page_num)
@@ -3235,6 +3321,64 @@ class EditorView(FocusBorderMixin, Gtk.Box):
         if self.on_gutter_diagnostic_clicked:
             self.on_gutter_diagnostic_clicked()
 
+    def _wire_vim_callbacks(self, tab: EditorTab):
+        """Connect vim mode callbacks from tab to EditorView for status bar."""
+        vm = getattr(tab, "_vim_manager", None)
+        if not vm or not vm.is_enabled():
+            return
+
+        from .vim_command_router import VimCommandRouter
+
+        router = VimCommandRouter(
+            on_save=lambda: self.save_current(),
+            on_close=lambda: self.close_current_tab(),
+            on_force_close=lambda: self._force_close_current_tab(),
+            on_open=lambda path: self.open_or_create_file(path),
+            on_new_tab=lambda: self.new_file(),
+            on_next_tab=lambda: self._vim_next_tab(),
+            on_prev_tab=lambda: self._vim_prev_tab(),
+        )
+        vm.set_router(router)
+
+        tab.on_vim_mode_changed = self._on_vim_mode_changed_from_tab
+        tab.on_vim_command_changed = self._on_vim_command_changed_from_tab
+
+    def _on_vim_mode_changed_from_tab(self, mode: str):
+        if self.on_vim_mode_changed:
+            self.on_vim_mode_changed(mode)
+
+    def _on_vim_command_changed_from_tab(self, mode: str, command: str):
+        if self.on_vim_command_changed:
+            self.on_vim_command_changed(mode, command)
+
+    def _force_close_current_tab(self):
+        """Close current tab without save confirmation (for :q!)."""
+        tab = self._get_current_tab()
+        if tab:
+            tab.modified = False
+        self.close_current_tab()
+
+    def _vim_next_tab(self):
+        n = self.notebook.get_n_pages()
+        if n > 0:
+            current = self.notebook.get_current_page()
+            self.notebook.set_current_page((current + 1) % n)
+
+    def _vim_prev_tab(self):
+        n = self.notebook.get_n_pages()
+        if n > 0:
+            current = self.notebook.get_current_page()
+            self.notebook.set_current_page((current - 1) % n)
+
+    def _update_vim_mode_for_current_tab(self):
+        """Notify status bar about the current tab's vim mode."""
+        tab = self._get_current_tab()
+        if tab and hasattr(tab, "_vim_manager") and tab._vim_manager and tab._vim_manager.is_enabled():
+            if self.on_vim_mode_changed:
+                self.on_vim_mode_changed(tab._vim_manager.mode)
+        elif self.on_vim_mode_changed:
+            self.on_vim_mode_changed("")
+
     def get_current_tab(self) -> EditorTab | None:
         """Get the current tab, or None if no tabs are open."""
         return self._get_current_tab()
@@ -3356,6 +3500,8 @@ class EditorView(FocusBorderMixin, Gtk.Box):
             tab = self.tabs[tab_id]
             if tab.file_path and self.on_tab_switched:
                 self.on_tab_switched(tab.file_path)
+
+        self._update_vim_mode_for_current_tab()
 
     def _sync_tab_selection(self, active_page_num):
         """Update TabButton selection state for all notebook tabs."""
