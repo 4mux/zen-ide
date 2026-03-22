@@ -205,7 +205,10 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
     def _close_tab(self, index: int) -> None:
         if len(self._views) <= 1:
             return
-        self._stop_tab_spinner(index)
+        if self._vertical_mode:
+            self._stop_header_spinner(index)
+        else:
+            self._stop_tab_spinner(index)
         view = self._views[index]
         view.cleanup()
         if self._vertical_mode:
@@ -230,6 +233,13 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
             self._update_tab_selection()
             self._update_tab_close_buttons()
             self._update_tab_bar_visibility()
+        self._persist_tabs()
+
+    def _persist_tabs(self) -> None:
+        """Save current tab state to settings so closed tabs stay closed on restart."""
+        from shared.settings import set_setting
+
+        set_setting("workspace.ai_tabs", self.save_state(), persist=True)
 
     def _close_tab_by_view(self, view) -> None:
         """Close a specific view (used in vertical mode)."""
@@ -299,8 +309,8 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
 
         view.on_maximize = lambda name: self._on_view_maximize(name)
         view.on_provider_changed = lambda label, v=view: self._on_view_provider_changed(v, label)
-        view.on_title_inferred = lambda title, idx=len(self._views): self._on_title_inferred(idx, title)
-        view.on_processing_changed = lambda p, idx=len(self._views): self._on_processing_changed(idx, p)
+        view.on_title_inferred = lambda title, v=view: self._on_title_inferred(self._view_idx(v), title)
+        view.on_processing_changed = lambda p, v=view: self._on_processing_changed(self._view_idx(v), p)
 
         self._views.append(view)
         tab_idx = len(self._views) - 1
@@ -308,10 +318,12 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         if self._vertical_mode:
             # Vertical mode: show each view's own header, add to vertical container
             view.add_css_class(self.UNFOCUS_CSS_CLASS)
-            # Wire up header buttons for pane-level add/close/maximize
+            # Wire up header buttons for pane-level add/close
             view._ai_header.add_btn.connect("clicked", lambda _b: self._on_add_request())
             view._ai_header.clear_btn.connect("clicked", lambda _b, v=view: self._close_tab_by_view(v))
-            view._ai_header.maximize_btn.connect("clicked", lambda _b, v=view: self._on_pane_maximize(v))
+            # Route pane-level maximize through view.on_maximize (like terminal_stack);
+            # this avoids double-firing since _on_maximize_clicked already calls on_maximize.
+            view.on_maximize = lambda _name, v=view: self._on_pane_maximize(v)
             self._content_container.prepend(view)
         else:
             view._header.set_visible(False)
@@ -337,6 +349,11 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         if self._views and len(self._views) > 1:
             view.cwd = self._views[0].cwd
         view.spawn_shell()
+        focus_mgr = get_component_focus_manager()
+        if focus_mgr.get_current_focus() == self.COMPONENT_ID:
+            self._on_focus_in()
+        else:
+            focus_mgr.set_focus(self.COMPONENT_ID)
 
     # ── CLI provider header logic ──────────────────────────────────────
 
@@ -397,9 +414,20 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         label = _CLI_LABELS.get(provider, "AI")
         self._header.set_label(label)
 
+    def _view_idx(self, view) -> int:
+        """Return the current index of *view* in self._views, or -1 if not found."""
+        try:
+            return self._views.index(view)
+        except ValueError:
+            return -1
+
     def _on_title_inferred(self, view_idx: int, title: str) -> None:
         if 0 <= view_idx < len(self._tab_buttons):
             self._tab_buttons[view_idx].set_title(title)
+        if self._vertical_mode and 0 <= view_idx < len(self._views):
+            header = self._views[view_idx]._ai_header
+            header.title_label.set_label(title)
+            header.title_label.set_visible(True)
 
     def _on_processing_changed(self, view_idx: int, processing: bool) -> None:
         if self._vertical_mode:
@@ -533,6 +561,31 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
             self._maximized_view = view
             for v in self._views:
                 v.set_visible(v is view)
+        # Also expand/restore the overall AI chat panel (global maximize)
+        if self.on_maximize:
+            self.on_maximize("ai_chat")
+
+    @property
+    def _is_maximized(self):
+        return getattr(self, "__is_maximized", False)
+
+    @_is_maximized.setter
+    def _is_maximized(self, value):
+        self.__is_maximized = value
+        if not self._vertical_mode or not self._views:
+            return
+        if value:
+            # Pane-level maximize: hide all views except the active one
+            active = self._views[self._active_idx] if 0 <= self._active_idx < len(self._views) else None
+            if active and not getattr(self, "_maximized_view", None):
+                self._maximized_view = active
+                for v in self._views:
+                    v.set_visible(v is active)
+        elif getattr(self, "_maximized_view", None):
+            # Restore: show all views
+            self._maximized_view = None
+            for v in self._views:
+                v.set_visible(True)
 
     def _update_vertical_focus_border(self):
         """In vertical mode, apply focus border to the active view only."""
@@ -683,7 +736,10 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
 
     def cleanup(self) -> None:
         for idx in list(self._spinners):
-            self._stop_tab_spinner(idx)
+            if self._vertical_mode:
+                self._stop_header_spinner(idx)
+            else:
+                self._stop_tab_spinner(idx)
         for view in self._views:
             view.cleanup()
 

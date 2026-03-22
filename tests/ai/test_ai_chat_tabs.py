@@ -1,5 +1,6 @@
-from ai import ai_chat_tabs as ai_chat_tabs_module
 from ai.ai_chat_tabs import AIChatTabs
+
+from ai import ai_chat_tabs as ai_chat_tabs_module
 
 
 class TestSwitchToSession:

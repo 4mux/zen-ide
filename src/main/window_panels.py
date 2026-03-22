@@ -143,7 +143,9 @@ class WindowPanelsMixin:
                 if ai_enabled:
                     self.ai_chat.set_visible(False)
             elif panel_name == "ai_chat" and ai_enabled:
+                self.ai_chat.set_visible(True)  # may be hidden from a prior terminal maximize
                 animate_paned(self.main_paned, 0)
+                self.right_paned.set_shrink_start_child(True)
                 animate_paned(self.right_paned, 0)
                 animate_paned(self.bottom_paned, w, on_done=self._sync_terminal_resize)
                 self.terminal_view.set_visible(False)

@@ -123,7 +123,7 @@ else ifeq ($(UNAME_S),Linux)
 	@echo "Installing .desktop file and icon..."
 	@mkdir -p ~/.local/share/applications ~/.local/share/icons/hicolor/256x256/apps
 	@cp zen_icon.png ~/.local/share/icons/hicolor/256x256/apps/zen-ide.png
-	@sed 's|^Icon=.*|Icon=$(CURDIR)/zen_icon.png|;s|^Exec=.*|Exec=$(CURDIR)/$(PYTHON) $(CURDIR)/src/zen_ide.py|' zen-ide.desktop > ~/.local/share/applications/zen-ide.desktop
+	@sed 's|^Icon=.*|Icon=$(CURDIR)/zen_icon.png|;s|^Exec=.*|Exec=$(CURDIR)/zen %F|' zen-ide.desktop > ~/.local/share/applications/zen-ide.desktop
 	@gtk-update-icon-cache ~/.local/share/icons/hicolor/ 2>/dev/null || true
 	@update-desktop-database ~/.local/share/applications/ 2>/dev/null || true
 	@echo "✓ Installed zen-ide.desktop and icon for current user"

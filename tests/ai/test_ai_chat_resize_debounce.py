@@ -7,8 +7,9 @@ during paned maximize animations with heavy chat content.
 
 from unittest.mock import MagicMock
 
-from ai import ai_chat_terminal as mod
 from ai.ai_chat_terminal import AIChatTerminalView
+
+from ai import ai_chat_terminal as mod
 
 
 def _make_view(**overrides):

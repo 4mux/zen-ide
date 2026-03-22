@@ -21,6 +21,21 @@ from gi.repository import GLib, Gtk, Vte
 from shared.settings import get_setting
 from terminal.terminal_view import TerminalView
 
+# -------------------------------------------------------------------------
+# Virtual scrollbar constants
+# -------------------------------------------------------------------------
+# CLI tools (Claude, Copilot) run in VTE's alternate screen buffer where
+# there is zero scrollback.  Mouse wheel / trackpad scrolling works because
+# VTE forwards mouse events to the CLI via mouse tracking.  The scrollbar
+# cannot reflect VTE scrollback (there is none), so we add a virtual
+# scrollbar that translates drags into SGR mouse-wheel escape sequences
+# fed directly to the CLI.
+# -------------------------------------------------------------------------
+_VSCROLL_RANGE = 10000
+_VSCROLL_PAGE = 1000
+_VSCROLL_BOTTOM = _VSCROLL_RANGE - _VSCROLL_PAGE
+
+
 _CLI_LABELS: dict[str, str] = {
     "claude_cli": "Claude",
     "copilot_cli": "Copilot",
@@ -131,6 +146,7 @@ class AITerminalView(TerminalView):
         self._waiting_for_response = False
         self._commit_ready = False  # ignore commit signals until CLI is ready
         self._in_escape_seq = False  # inside a VTE escape sequence
+        self._in_osc_seq = False  # inside an OSC (Operating System Command) sequence
         self._idle_poll_id: int = 0  # GLib timer for PTY idle detection
         self._last_contents_serial: int = 0  # bumped on contents-changed
         self._session_id: str | None = None  # Claude CLI session ID for resume
@@ -160,24 +176,61 @@ class AITerminalView(TerminalView):
         self._ai_header = hdr
         self.append(hdr.box)
 
+        # Layout: HBox with ScrolledWindow (no native scrollbar) + virtual scrollbar
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        hbox.set_vexpand(True)
+        hbox.set_hexpand(True)
+
         scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.NEVER)
         scrolled.set_vexpand(True)
         scrolled.set_hexpand(True)
         scrolled.set_kinetic_scrolling(True)
         scrolled.add_css_class("terminal-scrolled")
         self._scrolled_window = scrolled
-        self.append(scrolled)
 
         self.terminal = Vte.Terminal()
         self._configure_terminal()
         scrolled.set_child(self.terminal)
+
+        # Virtual scrollbar — translates drags into mouse scroll events
+        # sent to the CLI via feed_child (SGR mouse wheel sequences).
+        self._vscroll_adj = Gtk.Adjustment(
+            value=_VSCROLL_BOTTOM,
+            lower=0,
+            upper=_VSCROLL_RANGE,
+            step_increment=10,
+            page_increment=_VSCROLL_PAGE // 2,
+            page_size=_VSCROLL_PAGE,
+        )
+        self._vscroll_prev = float(_VSCROLL_BOTTOM)
+        self._vscroll_inhibit = False
+        self._vscrollbar = Gtk.Scrollbar(
+            orientation=Gtk.Orientation.VERTICAL,
+            adjustment=self._vscroll_adj,
+        )
+        self._vscrollbar.add_css_class("ai-terminal-scrollbar")
+        self._vscroll_adj.connect("value-changed", self._on_vscroll_changed)
+
+        hbox.append(scrolled)
+        hbox.append(self._vscrollbar)
+        self.append(hbox)
+
         self._commit_handler_id = self.terminal.connect("commit", self._on_vte_commit)
         self.terminal.connect("contents-changed", self._on_contents_changed)
 
         self._is_maximized = False
         self.on_maximize = None
         self.on_provider_changed = None
+
+    # ------------------------------------------------------------------
+    # Maximize (override TerminalView which hardcodes "terminal")
+    # ------------------------------------------------------------------
+
+    def _on_maximize_clicked(self, button):
+        """Delegate maximize to parent — state and CSS managed by window_panels."""
+        if hasattr(self, "on_maximize") and self.on_maximize:
+            self.on_maximize("ai_chat")
 
     # ------------------------------------------------------------------
     # CLI resolution
@@ -270,8 +323,6 @@ class AITerminalView(TerminalView):
 
         env["ZEN_IDE_STATE_FILE"] = get_state_file_path()
 
-        env_list = [f"{k}={v}" for k, v in env.items()]
-
         argv = [binary]
         self._resume_attempted = False
         if resume and provider in ("claude_cli", "copilot_cli"):
@@ -310,7 +361,10 @@ class AITerminalView(TerminalView):
         # otherwise be captured as user input (the "Op Vte 7600 …" garbage).
         self._commit_ready = False
         self._in_escape_seq = False
+        self._in_osc_seq = False
         self._input_buf.clear()
+
+        env_list = [f"{k}={v}" for k, v in env.items()]
 
         self.terminal.spawn_async(
             Vte.PtyFlags.DEFAULT,
@@ -475,6 +529,7 @@ class AITerminalView(TerminalView):
         self._waiting_for_response = False
         self._commit_ready = False
         self._in_escape_seq = False
+        self._in_osc_seq = False
         self._stop_idle_poll()
         self._input_buf.clear()
         if callable(self.on_processing_changed):
@@ -645,15 +700,27 @@ class AITerminalView(TerminalView):
             # printable bytes aren't mistaken for real user input.
             if ch == "\x1b":
                 self._in_escape_seq = True
+                self._in_osc_seq = False
                 continue
             if self._in_escape_seq:
-                # CSI sequences end at an alpha char; other ESC sequences
-                # are two bytes (ESC + one char).
-                if ch.isalpha() or ch == "~":
-                    self._in_escape_seq = False
+                if not self._in_osc_seq:
+                    if ch == "]":
+                        # OSC sequence (\x1b]...BEL) — skip until BEL
+                        self._in_osc_seq = True
+                    elif ch.isalpha() or ch == "~":
+                        # CSI/short sequences end at an alpha char or ~
+                        self._in_escape_seq = False
+                else:
+                    # Inside OSC payload — ends at BEL (\x07)
+                    if ch == "\x07":
+                        self._in_escape_seq = False
+                        self._in_osc_seq = False
                 continue
 
             if ch in ("\r", "\n"):
+                # User submitted — reset virtual scrollbar to bottom
+                self._vscroll_reset()
+
                 user_text = "".join(self._input_buf).strip()
                 # Strip leftover escape sequence fragments (e.g. terminal
                 # capability responses like "[?1;2c" or "[200~").
@@ -695,10 +762,6 @@ class AITerminalView(TerminalView):
     # ------------------------------------------------------------------
     # PTY idle detection — stop spinner when CLI waits for input
     # ------------------------------------------------------------------
-
-    def _on_contents_changed(self, _terminal) -> None:
-        """Track that the CLI is still producing output."""
-        self._last_contents_serial += 1
 
     def _start_idle_poll(self) -> None:
         """Begin polling the PTY to detect when the CLI becomes idle."""
@@ -744,20 +807,101 @@ class AITerminalView(TerminalView):
         return True  # keep polling
 
     # ------------------------------------------------------------------
-    # Interface expected by window modules
+    # Virtual scrollbar — translates scrollbar drags into mouse wheel
+    # escape sequences so the CLI scrolls its internal content.
     # ------------------------------------------------------------------
 
-    # ------------------------------------------------------------------
-    # Scroll speed override — AI terminal content is denser, scroll faster
-    # ------------------------------------------------------------------
+    def _setup_scroll_controller(self) -> None:
+        """AI terminal: observe wheel events to keep the virtual scrollbar in sync.
 
-    def _get_wheel_step_pixels(self) -> float:
-        speed = float(get_setting("scroll_speed", 0.4))
-        return max(1.0, 180.0 * speed)
+        The controller runs in BUBBLE phase so VTE processes the event first
+        (forwarding it to the CLI via mouse tracking).  We then nudge the
+        virtual scrollbar position to match, returning False so we never
+        consume the event.
+        """
+        self._scroll_target = None
+        self._scroll_tick_id = 0
+        self._SCROLL_LERP = 0.3
 
-    def _get_touchpad_step_pixels(self) -> float:
-        speed = float(get_setting("scroll_speed", 0.4))
-        return max(1.0, 36.0 * speed)
+        from gi.repository import Gdk
+
+        flags = Gtk.EventControllerScrollFlags.VERTICAL
+        controller = Gtk.EventControllerScroll.new(flags)
+        controller.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
+        controller.connect("scroll", self._on_wheel_observe)
+        self.terminal.add_controller(controller)
+        self._wheel_gdk = Gdk
+
+    def _on_wheel_observe(self, controller, _dx, dy) -> bool:
+        """Mirror wheel/touchpad scrolls onto the virtual scrollbar."""
+        adj = getattr(self, "_vscroll_adj", None)
+        if adj is None:
+            return False
+
+        # Determine how many "lines" this event represents
+        dy = float(dy)
+        if dy == 0.0:
+            return False
+
+        get_unit = getattr(controller, "get_unit", None)
+        scroll_unit = getattr(self._wheel_gdk, "ScrollUnit", None)
+        if callable(get_unit) and scroll_unit is not None and get_unit() == scroll_unit.WHEEL:
+            lines = dy * 3  # discrete notch → ~3 lines
+        else:
+            lines = dy  # touchpad continuous delta
+
+        # Move the virtual scrollbar without triggering feed_child
+        self._vscroll_inhibit = True
+        new_val = max(0.0, min(float(adj.get_value()) + lines * 10, _VSCROLL_BOTTOM))
+        adj.set_value(new_val)
+        self._vscroll_prev = new_val
+        self._vscroll_inhibit = False
+        return False  # never consume — VTE still handles the event
+
+    def _on_vscroll_changed(self, adj) -> None:
+        """Translate virtual scrollbar drags into CLI scroll events."""
+        if self._vscroll_inhibit:
+            return
+        new_val = float(adj.get_value())
+        delta = new_val - self._vscroll_prev
+        self._vscroll_prev = new_val
+
+        if abs(delta) < 1.0:
+            return
+
+        # Convert adjustment delta to scroll lines (10 units ≈ 1 line)
+        lines = int(delta / 10)
+        if lines == 0:
+            return
+
+        # Send SGR mouse-wheel sequences to the CLI.
+        # Button 64 = scroll up, 65 = scroll down (SGR extended mode).
+        cols = self.terminal.get_column_count()
+        rows = self.terminal.get_row_count()
+        mid_col = max(1, cols // 2)
+        mid_row = max(1, rows // 2)
+
+        button = 65 if lines > 0 else 64
+        seq = f"\033[<{button};{mid_col};{mid_row}M".encode()
+
+        for _ in range(min(abs(lines), 30)):
+            self.terminal.feed_child(seq)
+
+    def _vscroll_reset(self) -> None:
+        """Reset virtual scrollbar to bottom (user is viewing latest content)."""
+        adj = getattr(self, "_vscroll_adj", None)
+        if adj is None:
+            return
+        if abs(adj.get_value() - _VSCROLL_BOTTOM) < 1:
+            return
+        self._vscroll_inhibit = True
+        adj.set_value(_VSCROLL_BOTTOM)
+        self._vscroll_prev = float(_VSCROLL_BOTTOM)
+        self._vscroll_inhibit = False
+
+    def _on_contents_changed(self, _terminal) -> None:
+        """Track CLI output for idle detection."""
+        self._last_contents_serial += 1
 
     # ------------------------------------------------------------------
     # Interface expected by window modules
