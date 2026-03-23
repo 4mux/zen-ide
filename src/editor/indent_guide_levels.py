@@ -6,6 +6,33 @@ Pure logic (no GTK dependency) so it can be unit-tested easily.
 from math import gcd
 
 
+def detect_indent_width(text, fallback):
+    """Detect the indent width used in a file from its content.
+
+    Scans leading whitespace of each line, collects non-zero space-only
+    indents, and returns the GCD.  Falls back to *fallback* when the file
+    has fewer than 3 indented lines (not enough signal).
+    """
+    indents = []
+    for line in text.split("\n"):
+        if not line.strip() or line[0] != " ":
+            continue
+        n = 0
+        for ch in line:
+            if ch == " ":
+                n += 1
+            else:
+                break
+        if n > 0:
+            indents.append(n)
+
+    if len(indents) < 3:
+        return fallback
+
+    step = gcd(*indents)
+    return max(step, 2)
+
+
 def compute_indent_step(non_zero_indents, tab_width):
     """Determine the indent step from a list of non-zero indent widths.
 

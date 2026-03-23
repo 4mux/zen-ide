@@ -10,6 +10,7 @@ from typing import Callable
 from gi.repository import Gdk, GLib, Graphene, Gtk, GtkSource, Pango
 
 from constants import (
+    BRACKET_SCOPE_LANGS,
     DEFAULT_INDENT_WIDTH,
     EDITOR_LEFT_PADDING,
     IMAGE_EXTENSIONS,
@@ -1174,20 +1175,28 @@ class EditorTab:
         return False
 
     # ------------------------------------------------------------------
-    # Smart Python indentation helpers
+    # Smart indentation helpers
     # ------------------------------------------------------------------
 
     _DEDENT_KEYWORDS = frozenset(("return", "break", "continue", "pass", "raise"))
 
     def _handle_smart_indent(self):
-        """Add extra indent after ``:``, ``(``, ``[``, ``{`` or dedent after
-        ``return``/``break``/``continue``/``pass``/``raise`` in Python files.
+        """Add extra indent after openers or dedent after closers/keywords.
+
+        Handles Python (``:``, openers, dedent keywords) and brace-based
+        languages (``{`` / ``}``).
 
         Returns True if the event was consumed, False to let GtkSourceView
         handle it with its default auto-indent behaviour.
         """
         lang = self.buffer.get_language()
-        if not lang or lang.get_id() not in ("python", "python3"):
+        if not lang:
+            return False
+        lang_id = lang.get_id()
+
+        is_python = lang_id in ("python", "python3")
+        is_brace_lang = lang_id in BRACKET_SCOPE_LANGS
+        if not is_python and not is_brace_lang:
             return False
 
         cursor = self.buffer.get_insert()
@@ -1207,20 +1216,31 @@ class EditorTab:
             indent_width = self.view.get_tab_width()
         one_level = " " * indent_width
 
-        # Analyse code (ignore trailing comments)
-        code = self._strip_python_comment(stripped)
+        new_indent = None
 
-        if code.endswith(":") or code.endswith(("(", "[", "{")):
-            new_indent = indent_str + one_level
+        if is_python:
+            code = self._strip_python_comment(stripped)
+            if code.endswith(":") or code.endswith(("(", "[", "{")):
+                new_indent = indent_str + one_level
+            else:
+                first_word = code.split()[0] if code else ""
+                if first_word in self._DEDENT_KEYWORDS:
+                    if indent_len >= indent_width:
+                        new_indent = indent_str[:-indent_width]
+                    else:
+                        new_indent = ""
         else:
-            first_word = code.split()[0] if code else ""
-            if first_word in self._DEDENT_KEYWORDS:
+            code = self._strip_line_comment(stripped)
+            if code.endswith(("{", "(", "[")):
+                new_indent = indent_str + one_level
+            elif code in ("}", "},", "});", ");", "]", "],", "]);"):
                 if indent_len >= indent_width:
                     new_indent = indent_str[:-indent_width]
                 else:
                     new_indent = ""
-            else:
-                return False  # nothing special — let GtkSourceView handle it
+
+        if new_indent is None:
+            return False
 
         self.buffer.begin_user_action()
         self.buffer.delete_selection(True, True)
@@ -1244,6 +1264,25 @@ class EditorTab:
                 in_string = ch
             elif ch == "#":
                 return code[:i].rstrip()
+        return code.rstrip()
+
+    @staticmethod
+    def _strip_line_comment(code):
+        """Return *code* with any trailing ``// …`` comment removed.
+
+        Respects string literals so ``//`` inside quotes is kept.
+        """
+        in_string = None
+        prev = ""
+        for i, ch in enumerate(code):
+            if in_string:
+                if ch == in_string and prev != "\\":
+                    in_string = None
+            elif ch in ("'", '"', "`"):
+                in_string = ch
+            elif ch == "/" and prev == "/" and not in_string:
+                return code[: i - 1].rstrip()
+            prev = ch
         return code.rstrip()
 
     def _delete_current_line(self):
@@ -2087,6 +2126,15 @@ class EditorTab:
         lang_id = language.get_id() if language else None
         use_tabs = lang_id in TAB_ONLY_LANGS
         indent = LANG_INDENT_WIDTH.get(lang_id) or LANG_INDENT_WIDTH.get(ext) or DEFAULT_INDENT_WIDTH
+
+        # Auto-detect indent width from file content when available
+        if not use_tabs:
+            text = self.buffer.get_text(self.buffer.get_start_iter(), self.buffer.get_end_iter(), True)
+            if text.strip():
+                from editor.indent_guide_levels import detect_indent_width
+
+                indent = detect_indent_width(text, indent)
+
         self.view.set_tab_width(indent)
         self.view.set_indent_width(indent)
         self.view.set_insert_spaces_instead_of_tabs(not use_tabs)

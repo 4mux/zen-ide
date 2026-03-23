@@ -35,7 +35,7 @@ CURSOR_BLINK_OFF_MS = 530  # milliseconds cursor is hidden during blink cycle
 DEFAULT_INDENT_WIDTH = 4  # default indent width for all languages
 # Language-specific indent widths (language ID or file extension → spaces per indent level)
 LANG_INDENT_WIDTH = {
-    "hcl": 2,  # Terraform (.tf)
+    "terraform": 2,  # Terraform (.tf)
     ".tf": 2,  # Terraform by extension
     "clojure": 2,  # Clojure convention
 }
@@ -51,19 +51,18 @@ NO_INDENT_GUIDE_LANGS = frozenset({"markdown", "txt", "text", "plain", "restruct
 BRACKET_SCOPE_LANGS = frozenset(
     {
         "json",
-        "javascript",
+        "js",
         "typescript",
         "jsx",
-        "tsx",
+        "typescript-jsx",
         "java",
         "c",
         "cpp",
         "objc",
-        "csharp",
+        "c-sharp",
         "css",
         "scss",
         "less",
-        "sass",
         "go",
         "rust",
         "swift",
@@ -76,7 +75,7 @@ BRACKET_SCOPE_LANGS = frozenset(
         "r",
         "scala",
         "groovy",
-        "hcl",
+        "terraform",
         "vala",
         "clojure",
     }

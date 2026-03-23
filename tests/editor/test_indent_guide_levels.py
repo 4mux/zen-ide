@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from editor.indent_guide_levels import compute_guide_levels, compute_indent_step
+from editor.indent_guide_levels import compute_guide_levels, compute_indent_step, detect_indent_width
 
 
 class TestBracketScopeJSON(unittest.TestCase):
@@ -317,6 +317,49 @@ class TestTwoSpaceJSONWithTabWidth4(unittest.TestCase):
         self.assertEqual(levels[7], 2)  # "shell"
         self.assertEqual(levels[8], 1)  # } → guide at col 0
         self.assertEqual(levels[9], 0)  # } → no guide
+
+
+class TestDetectIndentWidth(unittest.TestCase):
+    """Tests for detect_indent_width — auto-detect from file content."""
+
+    def test_two_space_js(self):
+        text = "function foo() {\n  const x = 1;\n  if (true) {\n    bar();\n  }\n}\n"
+        self.assertEqual(detect_indent_width(text, fallback=4), 2)
+
+    def test_four_space_python(self):
+        text = "def foo():\n    x = 1\n    if True:\n        y = 2\n    return x\n"
+        self.assertEqual(detect_indent_width(text, fallback=4), 4)
+
+    def test_fallback_on_no_indentation(self):
+        text = "hello\nworld\n"
+        self.assertEqual(detect_indent_width(text, fallback=4), 4)
+
+    def test_fallback_on_too_few_lines(self):
+        text = "{\n  \"key\": 1\n}\n"
+        # Only 1 indented line — not enough signal
+        self.assertEqual(detect_indent_width(text, fallback=4), 4)
+
+    def test_mixed_but_mostly_two(self):
+        text = "{\n  a: 1,\n  b: 2,\n  c: {\n    d: 3\n  }\n}\n"
+        self.assertEqual(detect_indent_width(text, fallback=4), 2)
+
+    def test_empty_file(self):
+        self.assertEqual(detect_indent_width("", fallback=4), 4)
+
+    def test_tabs_ignored(self):
+        """Tab-indented lines are skipped (first char is tab, not space)."""
+        text = "{\n\tkey: 1,\n\tval: 2,\n\tfoo: 3\n}\n"
+        self.assertEqual(detect_indent_width(text, fallback=4), 4)
+
+    def test_whitespace_only_lines_ignored(self):
+        """Blank lines with trailing spaces must not corrupt the GCD."""
+        text = "def foo():\n    x = 1\n    y = 2\n  \n    z = 3\n    return x\n"
+        self.assertEqual(detect_indent_width(text, fallback=4), 4)
+
+    def test_single_space_blank_line_ignored(self):
+        """A blank line with a single space must not reduce GCD to 1."""
+        text = "def foo():\n    a = 1\n    b = 2\n \n    c = 3\n    return a\n"
+        self.assertEqual(detect_indent_width(text, fallback=4), 4)
 
 
 if __name__ == "__main__":
