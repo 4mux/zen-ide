@@ -390,7 +390,12 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         return _CLI_LABELS.get(view._current_provider or "", "AI")
 
     def _on_header_click(self, _button) -> None:
-        from ai.ai_terminal_view import _CLAUDE_MODELS, _COPILOT_MODELS, _find_claude_binary, _find_copilot_binary
+        from ai.ai_terminal_view import (
+            _fetch_claude_models,
+            _fetch_copilot_models,
+            _find_claude_binary,
+            _find_copilot_binary,
+        )
         from shared.settings import get_setting
 
         claude_bin = _find_claude_binary()
@@ -409,12 +414,12 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
                 {"label": f"{'✓ ' if current == 'copilot_cli' else '  '}Copilot", "action": "copilot_cli", "enabled": True}
             )
 
-        # Add model submenu for the active provider
+        # Add model submenu for the active provider, fetched dynamically from the CLI
         models = []
-        if current == "claude_cli":
-            models = _CLAUDE_MODELS
-        elif current == "copilot_cli":
-            models = _COPILOT_MODELS
+        if current == "claude_cli" and claude_bin:
+            models = _fetch_claude_models(claude_bin)
+        elif current == "copilot_cli" and copilot_bin:
+            models = _fetch_copilot_models(copilot_bin)
 
         if models:
             items.append({"label": "---"})

@@ -23,12 +23,78 @@ from terminal.terminal_jog_wheel import JogWheelScrollbarMixin
 from terminal.terminal_view import TerminalView
 
 _CLI_LABELS: dict[str, str] = {
-    "claude_cli": "Claude",
     "copilot_cli": "Copilot",
+    "claude_cli": "Claude",
 }
 
-_CLAUDE_MODELS = ["opus", "sonnet", "haiku"]
-_COPILOT_MODELS = ["claude-sonnet-4.6", "gpt-4.1", "o4-mini", "gemini-2.5-pro"]
+# Per-binary model cache: binary path → list of model strings.
+_model_cache: dict[str, list[str]] = {}
+
+
+def _fetch_claude_models(binary: str) -> list[str]:
+    """Return available Claude model aliases by parsing ``claude --help``."""
+    if binary in _model_cache:
+        return _model_cache[binary]
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            [binary, "--help"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout
+        # Extract quoted words from the --model description line, e.g. 'sonnet' or 'opus'
+        import re
+
+        for line in out.splitlines():
+            if "--model" in line and "alias" in line:
+                models = re.findall(r"'([a-z0-9][-a-z0-9.]*)'", line)
+                if models:
+                    _model_cache[binary] = models
+                    return models
+    except Exception:
+        pass
+    result: list[str] = []
+    _model_cache[binary] = result
+    return result
+
+
+def _fetch_copilot_models(binary: str) -> list[str]:
+    """Return available Copilot model names by parsing ``copilot help config``."""
+    if binary in _model_cache:
+        return _model_cache[binary]
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            [binary, "help", "config"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout
+        import re
+
+        in_model_section = False
+        models: list[str] = []
+        for line in out.splitlines():
+            if re.match(r"\s*`model`", line):
+                in_model_section = True
+                continue
+            if in_model_section:
+                m = re.match(r'\s*-\s*"([^"]+)"', line)
+                if m:
+                    models.append(m.group(1))
+                elif line.strip() and not line.strip().startswith("-"):
+                    break
+        if models:
+            _model_cache[binary] = models
+            return models
+    except Exception:
+        pass
+    result = []
+    _model_cache[binary] = result
+    return result
 
 
 def _find_claude_binary() -> Optional[str]:
