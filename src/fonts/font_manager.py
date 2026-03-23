@@ -61,26 +61,33 @@ def _fonts_already_in_pango() -> bool:
 def register_resource_fonts() -> None:
     """Register font files from embedded data with the OS font system.
 
-    On macOS uses CoreText (process-scoped) unless PANGOCAIRO_BACKEND=fc,
-    in which case fontconfig is used. On Linux always uses fontconfig.
-    Fonts stay app-scoped — never installed system-wide.
+    Uses fontconfig on all platforms (including macOS).  Fonts stay
+    app-scoped — never installed system-wide.
 
     If the early background thread (zen_ide.py) already registered fonts via
-    CoreText before Gtk.init(), they'll be in the Pango font map and we skip
-    re-registration.  Detection uses Pango's live font map — not a flag — so
-    silent failures in the early thread are caught and retried here.
+    fontconfig before Gtk.init(), its ``_fonts_preregistered`` flag is checked
+    first (zero-cost).  Falls back to Pango font map enumeration if the flag
+    is unavailable, and re-registers from .ttf files on disk as a last resort.
     """
     global _resource_fonts_registered
     if _resource_fonts_registered:
         return
     _resource_fonts_registered = True
 
-    # Check if the early thread already made fonts visible in Pango.
+    # Fast path: early thread already registered fonts via fontconfig.
+    try:
+        import zen_ide
+
+        if zen_ide._fonts_preregistered:
+            return
+    except (ImportError, AttributeError):
+        pass
+
+    # Fallback: check Pango font map (expensive ~8ms, but only if early thread failed).
     if _fonts_already_in_pango():
         return
 
     # Fonts not visible — register from TTF files on disk.
-    import os
     from pathlib import Path
 
     resources_dir = Path(__file__).parent / "resources"
@@ -89,13 +96,7 @@ def register_resource_fonts() -> None:
     if not font_files:
         return
 
-    # On macOS with fontconfig/freetype backend, use fontconfig registration
-    use_fontconfig = sys.platform != "darwin" or os.environ.get("PANGOCAIRO_BACKEND") == "fc"
-
-    if use_fontconfig:
-        _register_fonts_fontconfig_files(font_files)
-    else:
-        _register_fonts_macos(font_files)
+    _register_fonts_fontconfig_files(font_files)
 
     # Force Pango to re-enumerate fonts so newly registered fonts are visible
     _refresh_pango_font_map()

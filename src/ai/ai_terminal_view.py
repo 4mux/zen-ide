@@ -529,7 +529,16 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
             lines.append(f"- Workspace folders: {', '.join(editor_ctx['workspace_folders'])}")
         if editor_ctx.get("workspace_file"):
             lines.append(f"- Workspace file: {editor_ctx['workspace_file']}")
-        if editor_ctx.get("git_branch"):
+        if editor_ctx.get("git_branches"):
+            branches = editor_ctx["git_branches"]
+            if len(branches) == 1:
+                repo, branch = next(iter(branches.items()))
+                lines.append(f"- Git branch: {repo} ({branch})")
+            else:
+                lines.append("- Git branches:")
+                for repo, branch in branches.items():
+                    lines.append(f"  - {repo}: {branch}")
+        elif editor_ctx.get("git_branch"):
             lines.append(f"- Git branch: {editor_ctx['git_branch']}")
 
         state_path = get_state_file_path()

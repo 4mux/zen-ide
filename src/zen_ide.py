@@ -154,31 +154,19 @@ def _read_pango_backend():
         return "auto"
 
 
-# Register resource fonts with CoreText/fontconfig BEFORE GTK/Pango initializes,
-# so the first Pango font map enumeration includes them (avoids expensive refresh later).
+# Register resource fonts with fontconfig BEFORE GTK/Pango initializes,
+# so the first Pango font map enumeration includes them (avoids expensive
+# refresh/swap on the critical path — saves ~24ms).
 # Fonts are loaded from binary .ttf files on disk (no Python module import overhead).
 def _register_fonts_early():
-    """Register bundled font .ttf files with CoreText before GTK starts (macOS only).
+    """Register bundled .ttf files with fontconfig before GTK starts.
 
-    Only CoreText registration survives Gtk.init() — fontconfig state is
-    discarded when GTK re-initialises it.  Linux skips early registration;
-    fonts are registered post-GTK by register_resource_fonts() instead.
-
-    When using fontconfig/freetype backend (PANGOCAIRO_BACKEND=fc), skip early
-    registration — fontconfig fonts must be registered post-GTK.
-
-    Uses ctypes.util.find_library for portable library resolution (works on
-    both Apple Silicon shared dyld cache and Intel Macs).
+    Fontconfig app-font state survives Gtk.init() on all platforms, so fonts
+    are visible in Pango's first font map enumeration without needing a
+    post-init changed()/swap cycle.  Runs in a background thread (~11ms of
+    ctypes FFI, concurrent with gi_requirements + GTK C library loading).
     """
     global _fonts_preregistered
-    if sys.platform != "darwin":
-        return
-
-    # Skip CoreText registration if using fontconfig backend — fonts must be
-    # registered with fontconfig post-GTK instead.
-    pango_backend = _read_pango_backend()
-    if pango_backend == "freetype":
-        return
 
     import ctypes
     import ctypes.util
@@ -192,26 +180,16 @@ def _register_fonts_early():
         return
 
     try:
-        ct_lib = ctypes.util.find_library("CoreText")
-        cf_lib = ctypes.util.find_library("CoreFoundation")
-        if not ct_lib or not cf_lib:
+        fc_lib = ctypes.util.find_library("fontconfig")
+        if not fc_lib:
             return
 
-        ct = ctypes.cdll.LoadLibrary(ct_lib)
-        cf = ctypes.cdll.LoadLibrary(cf_lib)
-        cf.CFStringCreateWithCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
-        cf.CFStringCreateWithCString.restype = ctypes.c_void_p
-        cf.CFURLCreateWithFileSystemPath.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_bool]
-        cf.CFURLCreateWithFileSystemPath.restype = ctypes.c_void_p
-        ct.CTFontManagerRegisterFontsForURL.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
-        ct.CTFontManagerRegisterFontsForURL.restype = ctypes.c_bool
-        kCFStringEncodingUTF8 = 0x08000100
+        fc = ctypes.cdll.LoadLibrary(fc_lib)
+        fc.FcConfigAppFontAddFile.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        fc.FcConfigAppFontAddFile.restype = ctypes.c_int
         registered_any = False
         for font_file in font_files:
-            path_str = cf.CFStringCreateWithCString(None, font_file.encode("utf-8"), kCFStringEncodingUTF8)
-            url = cf.CFURLCreateWithFileSystemPath(None, path_str, 0, False)
-            error = ctypes.c_void_p(0)
-            ok = ct.CTFontManagerRegisterFontsForURL(url, 1, ctypes.byref(error))
+            ok = fc.FcConfigAppFontAddFile(None, font_file.encode("utf-8"))
             if ok:
                 registered_any = True
         _fonts_preregistered = registered_any
@@ -220,7 +198,7 @@ def _register_fonts_early():
 
 
 # Run font registration in a background thread — ctypes FFI calls release the
-# GIL, so the ~17ms of CoreText work runs concurrently with gi_requirements +
+# GIL, so the ~11ms of fontconfig work runs concurrently with gi_requirements +
 # GTK C library loading (~274ms).  Joined before Gtk.init().
 _fonts_preregistered = False
 _font_thread = threading.Thread(target=_register_fonts_early, daemon=True)
@@ -309,9 +287,9 @@ if sys.platform == "darwin" and _macos_appkit_loaded is not None:
 
 # Initialize GTK and set dark theme preference at module level so the cost
 # is excluded from the first-paint timer (which starts in main()).
-# Join font thread first — fonts must be registered before Pango initializes
-# its font map during Gtk.init().  The thread started ~274ms ago and its
-# ~17ms of ctypes work completed long before this point.
+# Join font thread first — fontconfig app-fonts must be registered before
+# Pango initializes its font map during Gtk.init().  The thread started
+# ~274ms ago and its ~11ms of fontconfig work completed long before this point.
 _font_thread.join()
 Gtk.init()
 
@@ -619,8 +597,7 @@ class ZenIDEApp(Gtk.Application):
         super().__init__(
             application_id="com.zenide.app",
             flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE
-            | Gio.ApplicationFlags.HANDLES_OPEN
-            | Gio.ApplicationFlags.NON_UNIQUE,
+            | Gio.ApplicationFlags.HANDLES_OPEN,
         )
         self._pending_workspace = None
         self._pending_file = None
@@ -788,9 +765,20 @@ class ZenIDEApp(Gtk.Application):
         self.activate()
 
     def do_activate(self):
-        """Called when the application is activated."""
+        """Called when the application is activated.
+
+        Two distinct paths:
+        1. **First launch** — no window exists: create ZenIDEWindow, set CLI
+           hints (``_cli_file``, etc.) that ``_on_window_mapped`` consumes,
+           and defer file opening until the editor is realized.
+        2. **Re-activation** — window already exists (second ``zen file.py``
+           via D-Bus): open the file/workspace/dir directly in the running
+           window without touching panel visibility.
+        """
         win = self.props.active_window
-        if not win:
+        is_first_launch = win is None
+
+        if is_first_launch:
             # Heavy modules (editor, treeview, fonts) already preloaded by
             # background threads at module level — no imports needed here.
 
@@ -799,46 +787,78 @@ class ZenIDEApp(Gtk.Application):
             _STARTUP_TIME = time.monotonic()
             win = ZenIDEWindow(self)
 
-        # Set CLI arguments BEFORE present() — present() triggers the "map"
-        # signal which runs _init_workspace synchronously, so these must be
-        # available by then.
-        if self._pending_file:
-            win._cli_file = self._pending_file
-            win.tree_view.set_visible(False)
-            win.bottom_paned.set_visible(False)
+            # Set CLI arguments BEFORE present() — present() triggers the "map"
+            # signal which runs _init_workspace synchronously, so these must be
+            # available by then.
+            if self._pending_file:
+                win._cli_file = self._pending_file
+                win.tree_view.set_visible(False)
+                win.bottom_paned.set_visible(False)
 
-        if self._pending_new_file:
-            win._cli_new_file = self._pending_new_file
-            win.tree_view.set_visible(False)
-            win.bottom_paned.set_visible(False)
+            if self._pending_new_file:
+                win._cli_new_file = self._pending_new_file
+                win.tree_view.set_visible(False)
+                win.bottom_paned.set_visible(False)
 
-        if self._pending_workspace:
-            win._cli_workspace = self._pending_workspace
-            self._pending_workspace = None
+            if self._pending_workspace:
+                win._cli_workspace = self._pending_workspace
+                self._pending_workspace = None
 
-        if self._pending_dir:
-            win._cli_dir = self._pending_dir
-            self._pending_dir = None
+            if self._pending_dir:
+                win._cli_dir = self._pending_dir
+                self._pending_dir = None
 
-        win.present()
+            win.present()
 
-        # Defer main thread poll and housekeeping to after first paint
-        from shared.main_thread import start_main_thread_poll
+            # Defer main thread poll and housekeeping to after first paint
+            from shared.main_thread import start_main_thread_poll
 
-        start_main_thread_poll()
-        GLib.idle_add(_run_startup_housekeeping)
+            start_main_thread_poll()
+            GLib.idle_add(_run_startup_housekeeping)
 
-        # Open single file after present (editor needs to be mapped first)
-        if self._pending_file:
-            path = self._pending_file
-            self._pending_file = None
-            GLib.idle_add(lambda: win.editor_view.open_file(path) and False)
+            # Open single file after present (editor needs to be mapped first)
+            if self._pending_file:
+                path = self._pending_file
+                self._pending_file = None
+                GLib.idle_add(lambda: win.editor_view.open_file(path) and False)
 
-        # Create new file tab for non-existent file path from CLI
-        if self._pending_new_file:
-            path = self._pending_new_file
-            self._pending_new_file = None
-            GLib.idle_add(lambda: win.editor_view.open_or_create_file(path) and False)
+            # Create new file tab for non-existent file path from CLI
+            if self._pending_new_file:
+                path = self._pending_new_file
+                self._pending_new_file = None
+                GLib.idle_add(lambda: win.editor_view.open_or_create_file(path) and False)
+        else:
+            # Re-activation: open pending items in the existing window.
+            if self._pending_file:
+                path = self._pending_file
+                self._pending_file = None
+                win.editor_view.open_file(path)
+
+            if self._pending_new_file:
+                path = self._pending_new_file
+                self._pending_new_file = None
+                win.editor_view.open_or_create_file(path)
+
+            if self._pending_workspace:
+                ws = self._pending_workspace
+                self._pending_workspace = None
+                win._load_workspace_file(ws)
+
+            if self._pending_dir:
+                d = self._pending_dir
+                self._pending_dir = None
+                from shared.git_ignore_utils import collect_global_patterns
+                from shared.settings import set_setting
+
+                collect_global_patterns([d])
+                win.tree_view.load_workspace([d])
+                win.set_title(f"Zen IDE — {os.path.basename(d)}")
+                set_setting("workspace.workspace_file", "")
+                set_setting("workspace.folders", [d])
+                win._show_all_panels()
+
+            # Raise the existing window to the foreground
+            win.present()
 
 
 def main():

@@ -364,11 +364,11 @@ class WindowStateMixin:
                     self.set_title(f"Zen IDE — {os.path.basename(cwd)}")
 
     def _init_status_bar_and_files(self):
-        """Create StatusBar, restore files, and wire cursor callbacks.
+        """Create StatusBar and wire cursor callbacks.
 
-        Deferred to _deferred_init_panels to keep critical path fast.
+        File restoration is deferred to _deferred_init_heavy so the window
+        can render its first visible frame before loading files.
         """
-        from constants import IMAGE_EXTENSIONS
         from main.status_bar import StatusBar
         from shared.settings import get_workspace
 
@@ -381,21 +381,13 @@ class WindowStateMixin:
 
         workspace = get_workspace()
 
-        # Restore active file immediately for fast perceived startup
-        # Skip file restoration if a file, workspace, or directory was passed via CLI
+        # Collect file list but don't open yet — deferred to _deferred_init_heavy
         if self._cli_file or self._cli_new_file or self._cli_workspace or self._cli_dir:
             self._deferred_open_files_list = []
             self._deferred_last_file = ""
         else:
-            open_files = workspace.get("open_files", [])
-            last_file = workspace.get("last_file", "")
-            if last_file and os.path.isfile(last_file):
-                if os.path.splitext(last_file)[1].lower() in IMAGE_EXTENSIONS:
-                    self.editor_view.open_image(last_file)
-                else:
-                    self.editor_view.open_file(last_file)
-            self._deferred_open_files_list = open_files
-            self._deferred_last_file = last_file
+            self._deferred_open_files_list = workspace.get("open_files", [])
+            self._deferred_last_file = workspace.get("last_file", "")
 
         # Wire up cursor tracking for status bar
         self.editor_view.notebook.connect("switch-page", self._on_editor_tab_switched)
@@ -410,7 +402,12 @@ class WindowStateMixin:
         )
 
     def _deferred_init_panels(self):
-        """Deferred phase: actions, shortcuts, focus, StatusBar, bottom panels, terminal — not on critical path."""
+        """Deferred phase 1: actions, shortcuts, theme, StatusBar — lightweight setup.
+
+        Heavy work (bottom panels, terminal spawn, DevPad) is deferred to
+        _deferred_init_heavy via GLib.idle_add so the window can render its
+        first visible frame between the two phases.
+        """
         # Bind actions and shortcuts (deferred from _on_window_mapped —
         # user cannot physically press keys within the first ~130ms)
         if not self._runtime_bindings_ready:
@@ -456,11 +453,8 @@ class WindowStateMixin:
 
         self._font_size = get_font_settings("editor").get("size", DEFAULT_FONT_SIZE)
 
-        # Create StatusBar and restore files (deferred from _on_window_mapped for speed)
+        # Create StatusBar and wire callbacks (file restore deferred to Phase 2)
         self._init_status_bar_and_files()
-
-        open_files = getattr(self, "_deferred_open_files_list", [])
-        last_file = getattr(self, "_deferred_last_file", "")
 
         header = self._ensure_header_bar()
 
@@ -479,38 +473,78 @@ class WindowStateMixin:
         self._setup_file_drop_target(self._main_box)
         self.get_application()._setup_app_icon()
 
-        # Create bottom panels
+        # Show welcome screen immediately (lightweight) if no files and no dev pad
+        if not self._deferred_last_file:
+            dev_pad_was_open = get_setting("workspace.dev_pad_open", False)
+            if not dev_pad_was_open and not get_setting("behavior.auto_show_dev_pad_when_empty", True):
+                self._show_welcome_screen()
+
+        # Re-enable GTK animations (disabled at startup for faster first paint)
+        _gtk_settings = Gtk.Settings.get_default()
+        if _gtk_settings:
+            _gtk_settings.set_property("gtk-enable-animations", True)
+
+        # Schedule heavy work after a short delay so the compositor can
+        # present the first frame (idle_add can fire before the frame
+        # reaches the display server).  50 ms ≈ 3 frames at 60 Hz.
+        GLib.timeout_add(50, self._deferred_init_phase2_panels)
+
+        return False  # Don't repeat
+
+    # ------------------------------------------------------------------
+    # Phase 2: chained idle steps (panels → file restore → terminals)
+    # ------------------------------------------------------------------
+
+    def _deferred_init_phase2_panels(self):
+        """Phase 2a: create bottom panels and wire callbacks."""
         if not self._cli_file and not self._cli_new_file:
             self._create_bottom_panels()
 
-        # Wire maximize callbacks (now that bottom panels exist)
         if self._bottom_panels_created:
             if self._ai_enabled:
                 self.ai_chat.on_maximize = lambda name: self._maximize_panel(name)
             self.terminal_view.on_maximize = lambda name: self._maximize_panel(name)
 
-        # Show all panels for workspace file mode
         import zen_ide
 
         preload = zen_ide._workspace_preload if zen_ide._workspace_preload_event.is_set() else None
         if preload and preload.get("ws_file") and self._bottom_panels_created:
             self._show_all_panels()
 
-        # Schedule remaining files for idle opening
-        remaining_files = [fp for fp in open_files if fp != last_file and os.path.isfile(fp)]
+        # Next step: restore files (the heaviest part)
+        GLib.idle_add(self._deferred_init_phase2_files)
+        return False
 
+    def _deferred_init_phase2_files(self):
+        """Phase 2b: restore last active file and schedule remaining files."""
+        from constants import IMAGE_EXTENSIONS
+        from shared.settings import get_setting
+
+        last_file = getattr(self, "_deferred_last_file", "")
+        open_files = getattr(self, "_deferred_open_files_list", [])
+
+        if last_file and os.path.isfile(last_file):
+            if os.path.splitext(last_file)[1].lower() in IMAGE_EXTENSIONS:
+                self.editor_view.open_image(last_file)
+            else:
+                self.editor_view.open_file(last_file)
+
+        remaining_files = [fp for fp in open_files if fp != last_file and os.path.isfile(fp)]
         if remaining_files:
             self._open_deferred_files(remaining_files, last_file)
 
-        # Show welcome screen only if no pre-existing tabs (files or dev pad) were open
+        # Show DevPad if no file was opened
         if self.editor_view.notebook.get_n_pages() == 0:
             dev_pad_was_open = get_setting("workspace.dev_pad_open", False)
             if dev_pad_was_open or get_setting("behavior.auto_show_dev_pad_when_empty", True):
                 self.editor_view.toggle_dev_pad(self.dev_pad)
-            else:
-                self._show_welcome_screen()
 
-        # Start terminal shell and AI CLI in first workspace folder (skip in single-file mode)
+        # Next step: spawn terminals
+        GLib.idle_add(self._deferred_init_phase2_terminals)
+        return False
+
+    def _deferred_init_phase2_terminals(self):
+        """Phase 2c: spawn terminal shells and finalize layout."""
         if self._bottom_panels_created:
             workspace_dirs = self.tree_view.get_workspace_folders()
             if workspace_dirs and os.path.isdir(workspace_dirs[0]):
@@ -521,7 +555,6 @@ class WindowStateMixin:
                     self.ai_chat.change_directory(workspace_dirs[0])
                 self.ai_chat.spawn_shell()
 
-        # Unlock paned positions now that all real children are in place
         def _settle_and_unlock():
             self._unlock_paned_positions()
             self._reapply_saved_positions()
@@ -530,15 +563,10 @@ class WindowStateMixin:
 
         GLib.idle_add(_settle_and_unlock)
 
-        # Re-enable GTK animations (disabled at startup for faster first paint)
-        _gtk_settings = Gtk.Settings.get_default()
-        if _gtk_settings:
-            _gtk_settings.set_property("gtk-enable-animations", True)
-
         # Defer non-visible background work past the metric
         GLib.timeout_add(0, self._deferred_background_init)
 
-        return False  # Don't repeat
+        return False
 
     # ------------------------------------------------------------------
     # IDE editor context for AI terminals
@@ -580,10 +608,25 @@ class WindowStateMixin:
         except Exception:
             pass
 
+        git_branches: dict[str, str] = {}
         try:
             from shared.git_manager import get_git_manager
 
             git = get_git_manager()
+            # Collect branches for every unique repo in the workspace.
+            seen_roots: set[str] = set()
+            targets = list(workspace_folders)
+            if active_file:
+                targets.insert(0, active_file)
+            for target in targets:
+                repo_root = git.get_repo_root(target)
+                if repo_root and repo_root not in seen_roots:
+                    seen_roots.add(repo_root)
+                    branch = git.get_current_branch(repo_root) or ""
+                    if branch:
+                        git_branches[os.path.basename(repo_root)] = branch
+
+            # Keep single git_branch for backward compat (active file's repo).
             target = active_file or (workspace_folders[0] if workspace_folders else "")
             if target:
                 git_branch = git.get_current_branch(target) or ""
@@ -596,6 +639,7 @@ class WindowStateMixin:
             "workspace_folders": workspace_folders,
             "workspace_file": workspace_file,
             "git_branch": git_branch,
+            "git_branches": git_branches,
         }
 
     def _update_ide_state_file(self) -> None:

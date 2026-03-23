@@ -387,7 +387,17 @@ class DevPad(Gtk.Box):
         )
 
     def _refresh(self):
-        """Refresh the activity list."""
+        """Refresh the activity list.
+
+        Builds the first batch of rows synchronously for instant feedback,
+        then appends remaining rows in idle callbacks so the main loop stays
+        responsive and the window can render between batches.
+        """
+        # Cancel any in-flight incremental refresh
+        if hasattr(self, "_refresh_pending") and self._refresh_pending:
+            GLib.source_remove(self._refresh_pending)
+            self._refresh_pending = None
+
         # Clear existing content
         while True:
             child = self.content_box.get_first_child()
@@ -413,17 +423,43 @@ class DevPad(Gtk.Box):
             self.content_box.append(empty_label)
             return
 
-        # Display activities by date
+        # Flatten into (widget_factory) work items — date headers + activity rows
+        work_items: list = []
         for date_key, activities in grouped.items():
-            # Date header
-            date_label = Gtk.Label(label=date_key)
-            date_label.set_halign(Gtk.Align.START)
-            date_label.add_css_class("dev-pad-date")
-            self.content_box.append(date_label)
-
-            # Activities for this date
+            work_items.append(("date", date_key))
             for activity in activities:
-                row = self._create_activity_row(activity)
+                work_items.append(("row", activity))
+
+        # Build first batch synchronously for instant feedback
+        SYNC_BATCH = 20
+        self._build_rows(work_items[:SYNC_BATCH])
+
+        # Schedule remaining rows in idle batches
+        remaining = work_items[SYNC_BATCH:]
+        if remaining:
+            BATCH_SIZE = 30
+
+            def _build_next_batch():
+                self._refresh_pending = None
+                batch = remaining[:BATCH_SIZE]
+                del remaining[:BATCH_SIZE]
+                self._build_rows(batch)
+                if remaining:
+                    self._refresh_pending = GLib.idle_add(_build_next_batch)
+                return False
+
+            self._refresh_pending = GLib.idle_add(_build_next_batch)
+
+    def _build_rows(self, items):
+        """Append a batch of date headers and activity rows to content_box."""
+        for kind, data in items:
+            if kind == "date":
+                date_label = Gtk.Label(label=data)
+                date_label.set_halign(Gtk.Align.START)
+                date_label.add_css_class("dev-pad-date")
+                self.content_box.append(date_label)
+            else:
+                row = self._create_activity_row(data)
                 self.content_box.append(row)
 
     def refresh(self):

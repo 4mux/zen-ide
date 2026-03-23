@@ -22,6 +22,7 @@ def write_ide_state(
     workspace_folders: list[str] | None = None,
     workspace_file: str = "",
     git_branch: str = "",
+    git_branches: dict[str, str] | None = None,
 ) -> None:
     """Write current IDE state to ``~/.zen_ide/ide_state.json``.
 
@@ -34,6 +35,7 @@ def write_ide_state(
         "workspace_folders": workspace_folders or [],
         "workspace_file": workspace_file,
         "git_branch": git_branch,
+        "git_branches": git_branches or {},
     }
     try:
         os.makedirs(_STATE_DIR, exist_ok=True)
