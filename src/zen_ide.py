@@ -572,7 +572,7 @@ class ZenIDEWindow(
                 "show_dev_pad": [f"{mod}period"],
                 "open_sketch_pad": [f"{mod_shift}d", f"{mod}D"],
                 "focus_terminal": [f"{mod}grave"],
-                "focus_ai_chat": [f"{mod_shift}a", f"{mod}A"],
+                "focus_ai_chat": [f"{mod_shift}a"],
                 "next_tab": [f"{mod}Tab", "<Control>j"],
                 "prev_tab": [f"{mod_shift}Tab", "<Control><Shift>j"],
                 "zoom_in": [f"{mod}equal"],

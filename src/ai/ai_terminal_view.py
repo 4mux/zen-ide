@@ -938,7 +938,7 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
     # ------------------------------------------------------------------
 
     def focus_input(self) -> None:
-        """Focus the VTE widget (called by window_actions on Cmd+A)."""
+        """Focus the VTE widget (called by window_actions on Cmd+Shift+A)."""
         self.terminal.grab_focus()
 
     def is_processing(self) -> bool:

@@ -142,7 +142,7 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         hdr = AITerminalHeader(label=self._resolve_label())
         hdr.header_btn.connect("clicked", self._on_header_click)
         hdr.add_btn.connect("clicked", lambda _b: self._on_add_request())
-        hdr.clear_btn.connect("clicked", lambda _b: self._clear_active())
+        hdr.clear_btn.connect("clicked", lambda _b: self._close_tab(self._active_idx))
         hdr.maximize_btn.connect("clicked", self._on_maximize_clicked)
         self._stack_maximize_btn = hdr.maximize_btn
         self._header = hdr
@@ -211,6 +211,7 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
 
     def _close_tab(self, index: int) -> None:
         if len(self._views) <= 1:
+            self._clear_active()
             return
         if self._vertical_mode:
             self._stop_header_spinner(index)
@@ -542,6 +543,19 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         active = self._active
         if active:
             active.clear()
+            # Reset session state so clear behaves like a fresh session
+            active._title_inferred = False
+            active._session_id = None
+            # Reset title on tab button
+            idx = self._active_idx
+            if not self._vertical_mode and 0 <= idx < len(self._tab_buttons):
+                self._tab_buttons[idx].set_title(f"Chat {idx + 1}")
+            # Reset title on vertical-mode header
+            active._ai_header.title_label.set_label("")
+            active._ai_header.title_label.set_visible(False)
+            self._persist_tabs()
+            # Respawn the AI CLI so the terminal is usable again
+            active.spawn_shell()
 
     @property
     def _active(self):

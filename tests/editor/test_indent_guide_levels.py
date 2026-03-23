@@ -335,7 +335,7 @@ class TestDetectIndentWidth(unittest.TestCase):
         self.assertEqual(detect_indent_width(text, fallback=4), 4)
 
     def test_fallback_on_too_few_lines(self):
-        text = "{\n  \"key\": 1\n}\n"
+        text = '{\n  "key": 1\n}\n'
         # Only 1 indented line — not enough signal
         self.assertEqual(detect_indent_width(text, fallback=4), 4)
 

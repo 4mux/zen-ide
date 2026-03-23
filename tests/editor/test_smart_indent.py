@@ -14,7 +14,6 @@ from editor.editor_view import EditorTab
 from editor.indent_guide_levels import detect_indent_width
 from editor.langs.language_detect import detect_language
 
-
 # ---------------------------------------------------------------------------
 # Pure helpers — no GTK buffer needed
 # ---------------------------------------------------------------------------
