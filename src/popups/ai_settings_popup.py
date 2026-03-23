@@ -33,16 +33,36 @@ def _get_provider_availability() -> dict[str, bool]:
     }
 
 
+import subprocess
+
+
 def _fetch_models_for_provider(provider: str) -> list[str]:
-    """Fetch available models for a provider."""
-    if provider == PROVIDER_CLAUDE_CLI:
-        from ai.ai_terminal_view import _CLAUDE_MODELS
+    """Fetch available models for a provider by invoking the CLI."""
+    try:
+        if provider == PROVIDER_CLAUDE_CLI:
+            from ai.ai_terminal_view import _find_claude_binary
 
-        return list(_CLAUDE_MODELS)
-    elif provider == PROVIDER_COPILOT_CLI:
-        from ai.ai_terminal_view import _COPILOT_MODELS
+            binary = _find_claude_binary()
+            if not binary:
+                return []
+            result = subprocess.run([binary, "--list-models"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                # Assume each model is on its own line
+                return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            return []
+        elif provider == PROVIDER_COPILOT_CLI:
+            from ai.ai_terminal_view import _find_copilot_binary
 
-        return list(_COPILOT_MODELS)
+            binary = _find_copilot_binary()
+            if not binary:
+                return []
+            result = subprocess.run([binary, "models", "list"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                # Assume each model is on its own line
+                return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            return []
+    except Exception:
+        return []
     return []
 
 

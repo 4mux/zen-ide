@@ -243,6 +243,52 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
         return "AI"
 
     # ------------------------------------------------------------------
+    # Onboarding (no CLI detected)
+    # ------------------------------------------------------------------
+
+    def _show_onboarding(self) -> bool:
+        """Print setup instructions into the VTE when no AI CLI is found."""
+        self._show_install_hint(None)
+        return GLib.SOURCE_REMOVE
+
+    def _show_install_hint(self, provider: str | None) -> None:
+        """Print install instructions for a specific CLI (or both) into the VTE."""
+        BOLD = "\033[1m"
+        DIM = "\033[2m"
+        CYAN = "\033[36m"
+        YELLOW = "\033[33m"
+        RESET = "\033[0m"
+        NL = "\r\n"
+
+        claude_info = [
+            f"  {YELLOW}Claude Code{RESET}",
+            f"  {DIM}https://code.claude.com/docs/en/quickstart{RESET}",
+            f"  {CYAN}curl -fsSL https://claude.ai/install.sh | bash{RESET}",
+        ]
+        copilot_info = [
+            f"  {YELLOW}GitHub Copilot{RESET}",
+            f"  {DIM}https://github.com/features/copilot/cli{RESET}",
+            f"  {CYAN}curl -fsSL https://gh.io/copilot-install | bash{RESET}",
+        ]
+
+        lines = [""]
+        if provider == "claude_cli":
+            lines.append(f"  {BOLD}Claude CLI is not installed.{RESET}{NL}")
+            lines.extend(claude_info)
+        elif provider == "copilot_cli":
+            lines.append(f"  {BOLD}Copilot CLI is not installed.{RESET}{NL}")
+            lines.extend(copilot_info)
+        else:
+            lines.append(f"  {BOLD}No AI CLI detected.{RESET}")
+            lines.append(f"  Install one of the supported CLIs to get started:{NL}")
+            lines.extend(claude_info)
+            lines.append("")
+            lines.extend(copilot_info)
+
+        lines.extend(["", "  Then select the CLI from the header menu.", ""])
+        self.terminal.feed(NL.join(lines).encode("utf-8"))
+
+    # ------------------------------------------------------------------
     # Shell spawn (override TerminalShellMixin)
     # ------------------------------------------------------------------
 
@@ -257,6 +303,7 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
 
         if not binary:
             super().spawn_shell()
+            GLib.timeout_add(300, self._show_onboarding)
             return
 
         self._current_provider = provider
@@ -461,26 +508,18 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
         copilot_bin = _find_copilot_binary()
         current = self._current_provider or get_setting("ai.provider", "")
 
-        items: list[dict] = []
-        if claude_bin:
-            items.append(
-                {
-                    "label": f"{'✓ ' if current == 'claude_cli' else '  '}Claude",
-                    "action": "claude_cli",
-                    "enabled": True,
-                }
-            )
-        if copilot_bin:
-            items.append(
-                {
-                    "label": f"{'✓ ' if current == 'copilot_cli' else '  '}Copilot",
-                    "action": "copilot_cli",
-                    "enabled": True,
-                }
-            )
-
-        if not items:
-            return
+        items: list[dict] = [
+            {
+                "label": f"{'✓ ' if current == 'claude_cli' else '  '}Claude{'' if claude_bin else '  ⚠ not installed'}",
+                "action": "claude_cli",
+                "enabled": True,
+            },
+            {
+                "label": f"{'✓ ' if current == 'copilot_cli' else '  '}Copilot{'' if copilot_bin else '  ⚠ not installed'}",
+                "action": "copilot_cli",
+                "enabled": True,
+            },
+        ]
 
         parent = self.get_root()
         if parent:
@@ -489,7 +528,19 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
             show_context_menu(parent, items, self._on_cli_selected, title="Select AI")
 
     def _on_cli_selected(self, provider: str) -> None:
-        """Switch this tab's provider and restart the terminal."""
+        """Switch this tab's provider and restart the terminal.
+
+        If the selected CLI is not installed, print install instructions instead.
+        """
+        binary_finders = {
+            "claude_cli": _find_claude_binary,
+            "copilot_cli": _find_copilot_binary,
+        }
+        finder = binary_finders.get(provider)
+        if finder and not finder():
+            self._show_install_hint(provider)
+            return
+
         if provider == self._current_provider:
             return
         self._current_provider = provider
