@@ -371,56 +371,34 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
     # ── CLI provider header logic ──────────────────────────────────────
 
     def _resolve_label(self) -> str:
-        from ai.ai_terminal_view import _CLI_LABELS
+        from ai.cli.cli_manager import cli_manager
         from shared.settings import get_setting
 
-        provider = get_setting("ai.provider", "")
-        if provider in _CLI_LABELS:
-            return _CLI_LABELS[provider]
-        from ai.ai_terminal_view import _find_claude_binary, _find_copilot_binary
-
-        if _find_claude_binary():
-            return "Claude"
-        if _find_copilot_binary():
-            return "Copilot"
-        return "AI"
+        return cli_manager.resolve_label(get_setting("ai.provider", ""))
 
     def _label_for_view(self, view) -> str:
-        from ai.ai_terminal_view import _CLI_LABELS
+        from ai.cli.cli_manager import cli_manager
 
-        return _CLI_LABELS.get(view._current_provider or "", "AI")
+        return cli_manager.labels().get(view._current_provider or "", "AI")
 
     def _on_header_click(self, _button) -> None:
-        from ai.ai_terminal_view import (
-            _fetch_claude_models,
-            _fetch_copilot_models,
-            _find_claude_binary,
-            _find_copilot_binary,
-        )
+        from ai.cli.cli_manager import cli_manager
         from shared.settings import get_setting
 
-        claude_bin = _find_claude_binary()
-        copilot_bin = _find_copilot_binary()
+        availability = cli_manager.availability()
+        labels = cli_manager.labels()
         active = self._active
         current = (active._current_provider if active else None) or get_setting("ai.provider", "")
         current_model = (active._current_model if active else None) or get_setting("ai.model", "")
 
         items: list[dict] = []
-        if claude_bin:
-            items.append(
-                {"label": f"{'✓ ' if current == 'claude_cli' else '  '}Claude", "action": "claude_cli", "enabled": True}
-            )
-        if copilot_bin:
-            items.append(
-                {"label": f"{'✓ ' if current == 'copilot_cli' else '  '}Copilot", "action": "copilot_cli", "enabled": True}
-            )
+        for pid in cli_manager.provider_ids:
+            if availability.get(pid):
+                check = "✓ " if pid == current else "  "
+                items.append({"label": f"{check}{labels[pid]}", "action": pid, "enabled": True})
 
         # Add model submenu for the active provider, fetched dynamically from the CLI
-        models = []
-        if current == "claude_cli" and claude_bin:
-            models = _fetch_claude_models(claude_bin)
-        elif current == "copilot_cli" and copilot_bin:
-            models = _fetch_copilot_models(copilot_bin)
+        models = cli_manager.fetch_models(current) if current else []
 
         if models:
             items.append({"label": "---"})
@@ -446,12 +424,12 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
             show_context_menu(root, items, _on_selected, title="Select AI")
 
     def _on_cli_selected(self, provider: str) -> None:
-        from ai.ai_terminal_view import _CLI_LABELS
+        from ai.cli.cli_manager import cli_manager
 
         active = self._active
         if active:
             active._on_cli_selected(provider)
-        label = _CLI_LABELS.get(provider, "AI")
+        label = cli_manager.labels().get(provider, "AI")
         self._header.set_label(label)
 
     def _view_idx(self, view) -> int:
@@ -728,8 +706,8 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
                         copilot_detect.append(view)
 
         # Snapshot existing sessions BEFORE any spawning
-        pre_claude = claude_detect[0]._list_claude_sessions() if claude_detect else set()
-        pre_copilot = copilot_detect[0]._list_copilot_sessions() if copilot_detect else set()
+        pre_claude = claude_detect[0]._list_sessions() if claude_detect else set()
+        pre_copilot = copilot_detect[0]._list_sessions() if copilot_detect else set()
 
         # Now spawn all views
         if resume:
@@ -789,10 +767,7 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
             return
 
         # Get current sessions and find new ones
-        if is_copilot:
-            current = views[0]._list_copilot_sessions()
-        else:
-            current = views[0]._list_claude_sessions()
+        current = views[0]._list_sessions()
         new_ids = current - pre_sessions
         # Exclude IDs already claimed by other (resumed) tabs
         claimed = {v._session_id for v in self._views if v._session_id and v not in views}
@@ -808,12 +783,12 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
 
         # Sort new sessions by mtime (oldest first = first tab spawned)
         if is_copilot:
-            d = views[0]._copilot_sessions_dir()
+            d = views[0]._sessions_dir()
             if not d:
                 return
             sorted_ids = sorted(new_ids, key=lambda sid: _session_mtime_dir(d, sid))
         else:
-            d = views[0]._claude_sessions_dir()
+            d = views[0]._sessions_dir()
             if not d:
                 return
             sorted_ids = sorted(new_ids, key=lambda sid: _session_mtime(d, sid))
@@ -904,7 +879,7 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         all_claimed = claimed_ids | {v._session_id for v in self._views if v._session_id and v is not view}
 
         if view._current_provider == "copilot_cli":
-            d = view._copilot_sessions_dir()
+            d = view._sessions_dir()
             if not d:
                 return None
             try:
@@ -925,7 +900,7 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
             return None
 
         # Claude
-        d = view._claude_sessions_dir()
+        d = view._sessions_dir()
         if not d:
             return None
         try:

@@ -10,60 +10,18 @@ import threading
 
 from gi.repository import Gdk, GLib, Gtk
 
+from ai.cli.cli_manager import cli_manager
 from popups.nvim_popup import NvimPopup
-
-# Provider constants
-PROVIDER_CLAUDE_CLI = "claude_cli"
-PROVIDER_COPILOT_CLI = "copilot_cli"
-
-# Display names for providers
-_PROVIDER_DISPLAY = {
-    PROVIDER_CLAUDE_CLI: "Claude CLI",
-    PROVIDER_COPILOT_CLI: "Copilot CLI",
-}
 
 
 def _get_provider_availability() -> dict[str, bool]:
     """Check which providers are available."""
-    from ai.ai_terminal_view import _find_claude_binary, _find_copilot_binary
-
-    return {
-        PROVIDER_CLAUDE_CLI: _find_claude_binary() is not None,
-        PROVIDER_COPILOT_CLI: _find_copilot_binary() is not None,
-    }
-
-
-import subprocess
+    return cli_manager.availability()
 
 
 def _fetch_models_for_provider(provider: str) -> list[str]:
-    """Fetch available models for a provider by invoking the CLI."""
-    try:
-        if provider == PROVIDER_CLAUDE_CLI:
-            from ai.ai_terminal_view import _find_claude_binary
-
-            binary = _find_claude_binary()
-            if not binary:
-                return []
-            result = subprocess.run([binary, "--list-models"], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                # Assume each model is on its own line
-                return [line.strip() for line in result.stdout.splitlines() if line.strip()]
-            return []
-        elif provider == PROVIDER_COPILOT_CLI:
-            from ai.ai_terminal_view import _find_copilot_binary
-
-            binary = _find_copilot_binary()
-            if not binary:
-                return []
-            result = subprocess.run([binary, "models", "list"], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                # Assume each model is on its own line
-                return [line.strip() for line in result.stdout.splitlines() if line.strip()]
-            return []
-    except Exception:
-        return []
-    return []
+    """Fetch available models for a provider via the CLI manager."""
+    return cli_manager.fetch_models(provider)
 
 
 class AISettingsPopup(NvimPopup):
@@ -84,11 +42,8 @@ class AISettingsPopup(NvimPopup):
         self._on_provider_changed = on_provider_changed
         self._on_model_changed = on_model_changed
 
-        # Build ordered provider list
-        self._provider_ids = [
-            PROVIDER_CLAUDE_CLI,
-            PROVIDER_COPILOT_CLI,
-        ]
+        # Build ordered provider list from the CLI manager
+        self._provider_ids = cli_manager.provider_ids
 
         # Current model list for the selected provider
         self._model_list: list[str] = []
@@ -109,7 +64,7 @@ class AISettingsPopup(NvimPopup):
         provider_labels = []
         selected_provider_idx = 0
         for i, pid in enumerate(self._provider_ids):
-            label = _PROVIDER_DISPLAY.get(pid, pid)
+            label = cli_manager.labels().get(pid, pid)
             if not self._provider_availability.get(pid, False):
                 label += "  (not installed)"
             provider_labels.append(label)
@@ -122,18 +77,19 @@ class AISettingsPopup(NvimPopup):
         self._provider_dropdown.set_hexpand(True)
         self._content_box.append(self._provider_dropdown)
 
-        # --- Model combo box ---
-        model_label = Gtk.Label(label="Model")
-        model_label.set_halign(Gtk.Align.START)
-        model_label.add_css_class("nvim-popup-hint")
-        model_label.set_margin_top(12)
-        self._content_box.append(model_label)
+        # --- Model combo box (hidden until models are fetched) ---
+        self._model_label = Gtk.Label(label="Model")
+        self._model_label.set_halign(Gtk.Align.START)
+        self._model_label.add_css_class("nvim-popup-hint")
+        self._model_label.set_margin_top(12)
+        self._model_label.set_visible(False)
+        self._content_box.append(self._model_label)
 
-        # Start with "Loading…" placeholder, then fetch real models
         self._model_list = []
         self._model_dropdown = Gtk.DropDown.new_from_strings(["Loading models…"])
         self._model_dropdown.set_sensitive(False)
         self._model_dropdown.set_tooltip_text("Select model")
+        self._model_dropdown.set_visible(False)
         self._content_box.append(self._model_dropdown)
 
         # Connect signals AFTER initial selection to avoid spurious callbacks
@@ -199,17 +155,14 @@ class AISettingsPopup(NvimPopup):
         selected_idx = self._provider_dropdown.get_selected()
         if selected_idx < len(self._provider_ids) and self._provider_ids[selected_idx] == provider:
             if models:
+                self._model_label.set_visible(True)
+                self._model_dropdown.set_visible(True)
                 self._model_dropdown.set_sensitive(True)
                 self._rebuild_model_dropdown(models, self._current_model)
             else:
-                # No models — show error state
-                self._model_list = []
-                self._model_dropdown.disconnect_by_func(self._on_model_selection_changed)
-                string_list = Gtk.StringList.new(["(failed to load models)"])
-                self._model_dropdown.set_model(string_list)
-                self._model_dropdown.set_selected(0)
-                self._model_dropdown.set_sensitive(False)
-                self._model_dropdown.connect("notify::selected", self._on_model_selection_changed)
+                # No models for this provider — hide model section
+                self._model_label.set_visible(False)
+                self._model_dropdown.set_visible(False)
 
     def _on_provider_selection_changed(self, dropdown, _param):
         """Handle provider combo box selection change."""
@@ -224,14 +177,10 @@ class AISettingsPopup(NvimPopup):
 
         self._current_provider = new_provider
 
-        # Show loading state while fetching models
+        # Hide model section while fetching; it will be shown if models are available
         self._model_list = []
-        self._model_dropdown.disconnect_by_func(self._on_model_selection_changed)
-        string_list = Gtk.StringList.new(["Loading models…"])
-        self._model_dropdown.set_model(string_list)
-        self._model_dropdown.set_selected(0)
-        self._model_dropdown.set_sensitive(False)
-        self._model_dropdown.connect("notify::selected", self._on_model_selection_changed)
+        self._model_label.set_visible(False)
+        self._model_dropdown.set_visible(False)
 
         # Fetch real models in background
         self._fetch_models_async(new_provider)
@@ -259,13 +208,21 @@ class AISettingsPopup(NvimPopup):
         """Override to prevent close when dropdown popover takes focus."""
         GLib.timeout_add(100, self._check_focus_and_close)
 
+    @property
+    def _visible_dropdowns(self):
+        """Return dropdowns that are currently visible."""
+        dds = [self._provider_dropdown]
+        if self._model_dropdown.get_visible():
+            dds.append(self._model_dropdown)
+        return dds
+
     def _check_active_and_close(self):
         """Override: don't close while a dropdown popover is open."""
         if self._closing:
             return False
         if self.get_property("is-active"):
             return False
-        for dropdown in (self._provider_dropdown, self._model_dropdown):
+        for dropdown in self._visible_dropdowns:
             popover = self._find_popover(dropdown)
             if popover is not None and popover.get_visible():
                 return False
@@ -279,7 +236,7 @@ class AISettingsPopup(NvimPopup):
         if self.get_focus() is not None or self.is_active():
             return False
         # Check if either dropdown's internal popover is currently visible
-        for dropdown in (self._provider_dropdown, self._model_dropdown):
+        for dropdown in self._visible_dropdowns:
             popover = self._find_popover(dropdown)
             if popover is not None and popover.get_visible():
                 GLib.timeout_add(200, self._check_focus_and_close)
@@ -321,7 +278,7 @@ class AISettingsPopup(NvimPopup):
         # Rebuild provider labels
         provider_labels = []
         for pid in self._provider_ids:
-            label = _PROVIDER_DISPLAY.get(pid, pid)
+            label = cli_manager.labels().get(pid, pid)
             if not availability.get(pid, False):
                 label += "  (not installed)"
             provider_labels.append(label)

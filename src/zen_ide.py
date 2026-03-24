@@ -298,6 +298,11 @@ Gtk.init()
 # below (~40ms of main-thread work).  The GIL releases during .pyc I/O and
 # GTK CSS initialisation, giving genuine parallelism (~20ms saved).
 
+# Pre-import shared.ui on the main thread so both preload threads don't race
+# for its module lock (Python's import machinery is not re-entrant and two
+# threads importing the same transitive dependency causes a _DeadlockError).
+import shared.ui  # noqa: F401
+
 
 def _preload_editor_module():
     import editor.editor_view  # noqa: F401

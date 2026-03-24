@@ -1,10 +1,10 @@
 # AI Terminal
 
 **Created_at:** 2026-03-21
-**Updated_at:** 2026-03-21
+**Updated_at:** 2026-03-24
 **Status:** Active
-**Goal:** Document the current AI system — VTE-based terminal running CLI tools, multi-tab sessions, inline completions
-**Scope:** `src/ai/`, `src/editor/inline_completion/`, `src/popups/ai_settings_popup.py`
+**Goal:** Document the current AI system — VTE-based terminal running CLI tools, multi-tab sessions, context injection, inline completions, and debug logging
+**Scope:** `src/ai/`, `src/editor/inline_completion/`, `src/shared/ide_state_writer.py`, `src/shared/ai_debug_log.py`, `src/popups/ai_settings_popup.py`, `src/main/window_state.py`
 
 ---
 
@@ -180,25 +180,180 @@ Switching providers: persists to `ai.provider` → SIGTERM current process → r
 
 ---
 
-## Inline Completions (Separate System)
+## Context Injection
 
-Inline ghost-text completions use the **Copilot HTTP API** directly — completely independent of the AI Terminal.
+The IDE injects editor state into AI CLIs so they have awareness of the current workspace, open files, and git state.
 
-### Location
+### Injection mechanisms
 
-`src/editor/inline_completion/copilot_api.py`
+| Mechanism | Target | Source |
+|-----------|--------|--------|
+| Environment variables | Both CLIs | Set before `spawn_shell()` |
+| `--append-system-prompt` | Claude CLI | `CLIProvider.append_ide_context()` |
+| `~/.copilot/copilot-instructions.md` | Copilot CLI | Written between managed markers |
+| `~/.zen_ide/ide_state.json` | Both CLIs (on-demand) | `IdeStateWriter` on tab switch |
 
-### How it works
+### Environment variables
 
-1. Reads OAuth token from `~/.config/github-copilot/apps.json`
-2. Exchanges for session token via GitHub API
-3. Sends FIM (fill-in-middle) requests to `api.githubcopilot.com/v1/completions`
+Set on the VTE child process before spawn:
 
-### Key methods
+| Variable | Content |
+|----------|---------|
+| `ZEN_ACTIVE_FILE` | Absolute path to the currently focused editor file |
+| `ZEN_OPEN_FILES` | Comma-separated list of all open file paths |
+| `ZEN_WORKSPACE_FOLDERS` | Comma-separated workspace root paths |
+| `ZEN_GIT_BRANCH` | Current git branch name |
+| `ZEN_IDE_STATE_FILE` | Path to `~/.zen_ide/ide_state.json` |
 
-- `complete_fim(prefix, suffix, language, file_path)` — single completion
-- `complete_fim_multi(..., n=3)` — alternative suggestions
-- `complete_stream(prompt, ..., on_chunk, on_done)` — streaming completions
+### System prompt injection
+
+Both providers receive a human-readable context block:
+
+```
+## Zen IDE Context
+You are running inside Zen IDE. The user has the following editor state:
+- Active file (currently viewing): src/main.py
+- Open files: main.py, utils.py, config.py
+- Workspace folders: /home/user/project
+- Git branch: feature-x
+
+This state was captured at launch. For the latest editor state
+during this conversation, read: ~/.zen_ide/ide_state.json
+```
+
+- **Claude:** appended via `--append-system-prompt "<context>"`
+- **Copilot:** written to `~/.copilot/copilot-instructions.md` between `<!-- zen-ide-context-start -->` and `<!-- zen-ide-context-end -->` markers
+
+### IDE state file
+
+`src/shared/ide_state_writer.py` — atomic write to `~/.zen_ide/ide_state.json`.
+
+- Written on tab switch, file open/close, workspace change (debounced 200ms)
+- Git queries run in a background thread to avoid blocking the main thread
+- AI CLIs can read this file mid-conversation for up-to-date context
+
+```json
+{
+  "active_file": "src/main.py",
+  "open_files": ["src/main.py", "src/utils.py"],
+  "workspace_folders": ["/home/user/project"],
+  "workspace_file": "/home/user/project.zen-workspace",
+  "git_branch": "feature-x"
+}
+```
+
+---
+
+## Inline Completions
+
+Ghost-text code suggestions rendered as a visual overlay in the editor. Uses the **Copilot HTTP API** directly — completely independent of the AI Terminal.
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `src/editor/inline_completion/inline_completion_manager.py` | Orchestrator: debounce, keystroke handling, lifecycle |
+| `src/editor/inline_completion/inline_completion_provider.py` | API request, prompt building, caching, FIM/chat fallback |
+| `src/editor/inline_completion/ghost_text_renderer.py` | GtkSnapshot visual overlay, accept/dismiss, streaming |
+| `src/editor/inline_completion/context_gatherer.py` | Context extraction: prefix/suffix, cross-file imports |
+| `src/editor/inline_completion/copilot_api.py` | HTTP client, OAuth token exchange, FIM endpoint |
+
+### Complete lifecycle
+
+```
+User types → on_buffer_changed
+    ↓
+Record keystroke → adaptive debounce (250–800ms)
+    ↓
+gather_context(editor_tab) → CompletionContext:
+    - prefix (last 1500 chars before cursor)
+    - suffix (first 500 chars after cursor)
+    - file_path, language, cursor_line/col
+    - related_snippets from open tabs / imports
+    ↓
+Check CompletionCache (LRU, 50 entries, keyed by context hash)
+    ↓  MISS
+CopilotAPI.complete_fim() → HTTP POST to api.githubcopilot.com/v1/completions
+    ↓
+_clean_response() → strip markdown fences, FIM cursor, prose
+_deduplicate() → remove lines already in prefix/suffix
+    ↓
+Cache result → GLib.idle_add() back to main thread
+    ↓
+GhostTextRenderer.show(text)
+    - Render as visual overlay via GtkSnapshot
+    - Never modifies the buffer (preserves undo stack)
+    ↓
+User presses Tab → insert into buffer as undoable action
+User presses Esc → dismiss ghost text
+```
+
+### Context gathering
+
+`CompletionContext` dataclass built by `context_gatherer.py`:
+
+| Field | Source | Size limit |
+|-------|--------|------------|
+| `prefix` | Text before cursor | Last 1500 chars |
+| `suffix` | Text after cursor | First 500 chars |
+| `file_path` | Active editor tab | — |
+| `language` | GtkSourceView language ID | — |
+| `cursor_line` / `cursor_col` | Buffer cursor position | 1-indexed |
+| `related_snippets` | Cross-file context | Max 10 snippets |
+
+**Related snippets** gathered from:
+1. Open editor tabs (first 300 chars of each)
+2. Import statements (parse imports, read snippet from resolved file)
+3. Max 10 snippets, tagged with relevance: `open_tab`, `import`, `same_dir`
+
+### Authentication
+
+1. Read OAuth token from `~/.config/github-copilot/apps.json`
+2. Exchange for session token via `POST https://api.github.com/copilot_internal/v2/token`
+3. Session token cached in memory; refreshed 60s before expiry
+4. Bearer token sent in `Authorization` header
+
+### FIM system prompt
+
+```
+You are a code completion engine embedded in a code editor.
+Output ONLY the code that should be inserted at █.
+- Output raw code ONLY — no markdown, explanation, commentary
+- Never describe or review the code
+- If █ is in a comment, complete naturally
+- Do NOT repeat existing code
+- Output NOTHING if no meaningful completion
+```
+
+### Ghost text rendering
+
+`GhostTextRenderer` — visual-only overlay via GtkSnapshot:
+
+- **Never modifies the buffer** — drawing happens in the view's snapshot method
+- **Preserves undo stack** — accepted text inserted via `buffer.begin_user_action()`
+- **Multi-line support** — first line at cursor position, subsequent lines at left margin
+- **Styling:** theme's `fg_dim` colour, 55% alpha, italic
+
+Rendering order in `EditorTab.do_snapshot()`:
+1. Parent `GtkSource.View.do_snapshot()`
+2. Indent guides
+3. Gutter diff indicators
+4. Colour swatches
+5. **Ghost text overlay**
+6. Custom block cursor
+
+### Keybindings
+
+| Keybinding | Action |
+|------------|--------|
+| `Tab` | Accept full completion |
+| `Escape` | Dismiss |
+| `Cmd+Right` / `Ctrl+Right` | Accept next word |
+| `Cmd+Down` / `Ctrl+Down` | Accept next line |
+| `Alt+]` | Cycle to next suggestion |
+| `Alt+[` | Cycle to previous suggestion |
+| `Alt+\` | Manual trigger |
+| Any other key | Dismiss current ghost text |
 
 ### Safety mechanisms
 
@@ -209,6 +364,74 @@ Inline ghost-text completions use the **Copilot HTTP API** directly — complete
 | LRU cache | 50-entry cache keyed by MD5 of prefix + suffix + language |
 | Max tokens | 500 tokens per request |
 | Request cancellation | Pending requests cancelled when new keystrokes arrive |
+| Prose filtering | Rejects responses with prose indicators (high word length, space ratios) |
+| Trailing whitespace heuristic | Skips trigger if line ends with trailing whitespace after a "complete" character |
+
+---
+
+## Debug Logging
+
+`src/shared/ai_debug_log.py` — append-only structured logging to `~/.zen_ide/ai_debug_log.txt`.
+
+```python
+from shared.ai_debug_log import ai_log
+
+ai_log.request("anthropic", "claude-sonnet-4", msg_count=5)
+ai_log.chunk(234)                                # Bytes received
+ai_log.complete(1.8, 4096)                       # Duration, response length
+ai_log.error("HTTP 500: internal …")
+ai_log.tool_use("read_file", {"file_path": "…"})
+ai_log.tool_result("read_file", ok=True, chars=1200)
+ai_log.event("stale_watchdog", "cancelled after 90s")
+```
+
+- Automatic rotation at 2 MB
+- Thread-safe append
+- Lightweight (always on)
+- Inline completions logged with `[IC]` prefix
+
+---
+
+## Class Hierarchy
+
+```
+ZenIDE (main window)
+├── WindowStateMixin
+│   ├── _ai_enabled (setting: ai.is_enabled)
+│   ├── _get_editor_context() → dict
+│   └── ai_chat: AITerminalStack
+│
+├── AITerminalStack (Gtk.Box)
+│   ├── _views: list[AITerminalView]
+│   ├── _active_idx: int
+│   ├── save_state() → list[dict]
+│   └── Proxies: spawn_shell, focus_input, is_processing, stop_ai
+│
+├── AITerminalView (TerminalView + JogWheelScrollbarMixin)
+│   ├── terminal: Vte.Terminal (PTY)
+│   ├── _current_provider / _current_model (per-tab)
+│   ├── _session_id (for resume)
+│   ├── spawn_shell(), stop_ai(), is_processing()
+│   └── AITerminalHeader, TabTitleInferrer
+│
+├── CLIManager (singleton)
+│   ├── _providers: dict[str, CLIProvider]
+│   │   ├── ClaudeCLI
+│   │   └── CopilotCLI
+│   ├── availability(), resolve(), fetch_models()
+│   └── build_argv(), list_sessions()
+│
+├── EditorTab
+│   └── InlineCompletionManager
+│       ├── _provider: InlineCompletionProvider
+│       │   ├── _api: CopilotAPI
+│       │   └── _cache: CompletionCache (LRU)
+│       ├── _renderer: GhostTextRenderer
+│       └── _debounce: AdaptiveDebounce
+│
+└── IdeStateWriter
+    └── write_ide_state() → ~/.zen_ide/ide_state.json
+```
 
 ---
 

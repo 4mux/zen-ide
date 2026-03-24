@@ -183,6 +183,7 @@ All feature documentation lives in `docs/`. Read the relevant doc before working
 ### AI Integration
 | Doc | Description |
 |-----|-------------|
+| [docs/2026_03_21_ai_terminal.md](docs/2026_03_21_ai_terminal.md) | **Current AI system** — VTE terminal, CLI providers, context injection, inline completions, debug logging |
 | [docs/2026_01_25_ai_setup_guide.md](docs/2026_01_25_ai_setup_guide.md) | AI provider setup instructions |
 | [docs/2026_01_22_ai_strategy.md](docs/2026_01_22_ai_strategy.md) | How Zen integrates AI capabilities |
 | [docs/2026_03_04_ai_inline_completion.md](docs/2026_03_04_ai_inline_completion.md) | Inline ghost text AI code completion system |

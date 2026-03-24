@@ -10,126 +10,15 @@ popup to switch between available CLIs; the terminal restarts immediately.
 """
 
 import os
-import pathlib
 import re
-import shutil
 import time
-from typing import Optional
 
 from gi.repository import GLib, Gtk, Vte
 
+from ai.cli.cli_manager import cli_manager
 from shared.settings import get_setting, set_setting
 from terminal.terminal_jog_wheel import JogWheelScrollbarMixin
 from terminal.terminal_view import TerminalView
-
-_CLI_LABELS: dict[str, str] = {
-    "copilot_cli": "Copilot",
-    "claude_cli": "Claude",
-}
-
-# Per-binary model cache: binary path → list of model strings.
-_model_cache: dict[str, list[str]] = {}
-
-
-def _fetch_claude_models(binary: str) -> list[str]:
-    """Return available Claude model aliases by parsing ``claude --help``."""
-    if binary in _model_cache:
-        return _model_cache[binary]
-    import subprocess
-
-    try:
-        out = subprocess.run(
-            [binary, "--help"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        ).stdout
-        # Extract quoted words from the --model description line, e.g. 'sonnet' or 'opus'
-        import re
-
-        for line in out.splitlines():
-            if "--model" in line and "alias" in line:
-                models = re.findall(r"'([a-z0-9][-a-z0-9.]*)'", line)
-                if models:
-                    _model_cache[binary] = models
-                    return models
-    except Exception:
-        pass
-    result: list[str] = []
-    _model_cache[binary] = result
-    return result
-
-
-def _fetch_copilot_models(binary: str) -> list[str]:
-    """Return available Copilot model names by parsing ``copilot help config``."""
-    if binary in _model_cache:
-        return _model_cache[binary]
-    import subprocess
-
-    try:
-        out = subprocess.run(
-            [binary, "help", "config"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        ).stdout
-        import re
-
-        in_model_section = False
-        models: list[str] = []
-        for line in out.splitlines():
-            if re.match(r"\s*`model`", line):
-                in_model_section = True
-                continue
-            if in_model_section:
-                m = re.match(r'\s*-\s*"([^"]+)"', line)
-                if m:
-                    models.append(m.group(1))
-                elif line.strip() and not line.strip().startswith("-"):
-                    break
-        if models:
-            _model_cache[binary] = models
-            return models
-    except Exception:
-        pass
-    result = []
-    _model_cache[binary] = result
-    return result
-
-
-def _find_claude_binary() -> Optional[str]:
-    """Locate the ``claude`` CLI binary."""
-    for candidate in (
-        os.path.expanduser("~/.local/bin/claude"),
-        "/usr/local/bin/claude",
-    ):
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    return shutil.which("claude")
-
-
-def _find_copilot_binary() -> Optional[str]:
-    """Locate the ``copilot`` CLI binary."""
-    nvm_dir = os.environ.get("NVM_DIR", os.path.expanduser("~/.nvm"))
-    if os.path.isdir(nvm_dir):
-        versions_dir = os.path.join(nvm_dir, "versions", "node")
-        if os.path.isdir(versions_dir):
-            try:
-                for v in sorted(os.listdir(versions_dir), reverse=True):
-                    candidate = os.path.join(versions_dir, v, "bin", "copilot")
-                    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-                        return candidate
-            except OSError:
-                pass
-
-    for candidate in (
-        os.path.expanduser("~/.local/bin/copilot"),
-        "/usr/local/bin/copilot",
-    ):
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-
-    return shutil.which("copilot")
 
 
 def _strip_escape_fragments(text: str) -> str:
@@ -143,43 +32,6 @@ def _strip_escape_fragments(text: str) -> str:
     # CSI-style fragments: "[" optionally followed by "?" then digits/semicolons then a letter
     text = re.sub(r"\[[\?]?[\d;]*[A-Za-z~]", "", text)
     return text.strip()
-
-
-# Managed marker to identify Zen IDE's section in copilot-instructions.md
-_ZEN_MARKER_START = "<!-- zen-ide-context-start -->"
-_ZEN_MARKER_END = "<!-- zen-ide-context-end -->"
-
-_COPILOT_INSTRUCTIONS_PATH = os.path.join(os.path.expanduser("~"), ".copilot", "copilot-instructions.md")
-
-
-def _write_copilot_instructions(context_block: str) -> None:
-    """Write/update the Zen IDE context section in Copilot's global instructions.
-
-    Preserves any existing user content outside the managed markers.
-    """
-    managed = f"{_ZEN_MARKER_START}\n{context_block}\n{_ZEN_MARKER_END}\n"
-
-    try:
-        existing = ""
-        if os.path.isfile(_COPILOT_INSTRUCTIONS_PATH):
-            with open(_COPILOT_INSTRUCTIONS_PATH, encoding="utf-8") as f:
-                existing = f.read()
-
-        # Replace existing managed block, or append
-        if _ZEN_MARKER_START in existing:
-            import re as _re
-
-            pattern = _re.escape(_ZEN_MARKER_START) + r".*?" + _re.escape(_ZEN_MARKER_END) + r"\n?"
-            updated = _re.sub(pattern, managed, existing, flags=_re.DOTALL)
-        else:
-            separator = "\n" if existing and not existing.endswith("\n") else ""
-            updated = existing + separator + managed
-
-        os.makedirs(os.path.dirname(_COPILOT_INSTRUCTIONS_PATH), exist_ok=True)
-        with open(_COPILOT_INSTRUCTIONS_PATH, "w", encoding="utf-8") as f:
-            f.write(updated)
-    except Exception:
-        pass
 
 
 class AITerminalView(JogWheelScrollbarMixin, TerminalView):
@@ -269,44 +121,14 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
         """Return (binary_path, provider_key) for the configured CLI.
 
         Uses the per-tab provider first, then the global setting, then
-        falls back: claude → copilot → None.
+        falls back through registered providers in order.
         """
-
         preferred = self._current_provider or get_setting("ai.provider", "")
-
-        if preferred == "copilot_cli":
-            binary = _find_copilot_binary()
-            if binary:
-                return binary, "copilot_cli"
-
-        if preferred == "claude_cli":
-            binary = _find_claude_binary()
-            if binary:
-                return binary, "claude_cli"
-
-        # Default / fallback order: claude first, then copilot.
-        binary = _find_claude_binary()
-        if binary:
-            return binary, "claude_cli"
-
-        binary = _find_copilot_binary()
-        if binary:
-            return binary, "copilot_cli"
-
-        return None, None
+        return cli_manager.resolve(preferred)
 
     def _resolve_label(self) -> str:
         """Return the CLI display name for the current setting."""
-        provider = get_setting("ai.provider", "")
-        if provider in _CLI_LABELS:
-            return _CLI_LABELS[provider]
-        # Peek at availability to pick a sensible default label.
-
-        if _find_claude_binary():
-            return "Claude"
-        if _find_copilot_binary():
-            return "Copilot"
-        return "AI"
+        return cli_manager.resolve_label(get_setting("ai.provider", ""))
 
     # ------------------------------------------------------------------
     # Onboarding (no CLI detected)
@@ -320,36 +142,19 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
     def _show_install_hint(self, provider: str | None) -> None:
         """Print install instructions for a specific CLI (or both) into the VTE."""
         BOLD = "\033[1m"
-        DIM = "\033[2m"
-        CYAN = "\033[36m"
-        YELLOW = "\033[33m"
         RESET = "\033[0m"
         NL = "\r\n"
 
-        claude_info = [
-            f"  {YELLOW}Claude Code{RESET}",
-            f"  {DIM}https://code.claude.com/docs/en/quickstart{RESET}",
-            f"  {CYAN}curl -fsSL https://claude.ai/install.sh | bash{RESET}",
-        ]
-        copilot_info = [
-            f"  {YELLOW}GitHub Copilot{RESET}",
-            f"  {DIM}https://github.com/features/copilot/cli{RESET}",
-            f"  {CYAN}curl -fsSL https://gh.io/copilot-install | bash{RESET}",
-        ]
-
         lines = [""]
-        if provider == "claude_cli":
-            lines.append(f"  {BOLD}Claude CLI is not installed.{RESET}{NL}")
-            lines.extend(claude_info)
-        elif provider == "copilot_cli":
-            lines.append(f"  {BOLD}Copilot CLI is not installed.{RESET}{NL}")
-            lines.extend(copilot_info)
+        if provider:
+            p = cli_manager.get(provider)
+            name = p.display_name if p else provider
+            lines.append(f"  {BOLD}{name} CLI is not installed.{RESET}{NL}")
+            lines.extend(cli_manager.install_lines(provider))
         else:
             lines.append(f"  {BOLD}No AI CLI detected.{RESET}")
             lines.append(f"  Install one of the supported CLIs to get started:{NL}")
-            lines.extend(claude_info)
-            lines.append("")
-            lines.extend(copilot_info)
+            lines.extend(cli_manager.install_lines())
 
         lines.extend(["", "  Then select the CLI from the header menu.", ""])
         self.terminal.feed(NL.join(lines).encode("utf-8"))
@@ -399,29 +204,20 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
 
         env["ZEN_IDE_STATE_FILE"] = get_state_file_path()
 
-        argv = [binary]
+        # Resolve resume / continue flags
         self._resume_attempted = False
-        if resume and provider in ("claude_cli", "copilot_cli"):
+        resume_session = None
+        continue_last = False
+        if resume and provider:
             self.validate_session_id()
             if self._session_id:
-                if provider == "claude_cli":
-                    argv.extend(["--resume", self._session_id])
-                else:
-                    argv.append(f"--resume={self._session_id}")
+                resume_session = self._session_id
                 self._resume_attempted = True
                 self._resume_spawn_time = time.monotonic()
             else:
-                argv.append("--continue")
-
-        # Yolo mode: accept all AI changes without confirmation prompts
-        if get_setting("ai.yolo_mode", True):
-            if provider == "claude_cli":
-                argv.append("--dangerously-skip-permissions")
-            elif provider == "copilot_cli":
-                argv.append("--yolo")
+                continue_last = True
 
         # Model override: use per-tab model, then global setting, then CLI default.
-        # ai.model may be a per-provider dict like {"copilot_cli": "...", "claude_cli": "..."}.
         model = self._current_model
         if not model:
             model_setting = get_setting("ai.model", "")
@@ -429,20 +225,28 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
                 model = model_setting.get(provider, "")
             else:
                 model = model_setting or ""
-        if model:
-            argv.extend(["--model", str(model)])
 
-        # Multi-workspace: add extra workspace folders so the CLI can access
-        # all repos in the workspace, not just the cwd.
+        # Extra workspace dirs (multi-workspace support)
+        extra_dirs: list[str] = []
         if self._get_workspace_folders:
             cwd_abs = os.path.abspath(self.cwd or os.getcwd())
             for folder in self._get_workspace_folders():
                 if os.path.abspath(folder) != cwd_abs:
-                    argv.extend(["--add-dir", folder])
+                    extra_dirs.append(folder)
 
-        # IDE context: append a system-prompt snippet so the AI knows about
-        # the user's current editor state and the dynamic state file.
-        self._append_ide_context_prompt(argv, provider, editor_ctx)
+        # Build argv via the provider
+        p = cli_manager.get(provider)
+        argv = p.build_argv(
+            binary,
+            resume_session=resume_session,
+            continue_last=continue_last,
+            yolo=get_setting("ai.yolo_mode", True),
+            model=model or "",
+            extra_dirs=extra_dirs,
+        )
+
+        # IDE context: append provider-specific system prompt / instructions
+        p.append_ide_context(argv, editor_ctx)
 
         # Reset commit readiness — CLI startup sends terminal capability
         # queries whose responses arrive via the commit signal and would
@@ -475,88 +279,24 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
         # by AITerminalStack.spawn_shell() to avoid multiple tabs claiming
         # the same session.  Only detect here when spawned standalone
         # (e.g. via _restart_cli or a manually added tab).
-        if not self._session_id and not getattr(self, "_stack_detects", False):
-            if provider == "claude_cli":
-                self._pre_spawn_sessions = self._list_claude_sessions()
-                GLib.timeout_add(3000, self._detect_session_id)
-            elif provider == "copilot_cli":
-                self._pre_spawn_sessions = self._list_copilot_sessions()
-                GLib.timeout_add(3000, self._detect_session_id)
+        if not self._session_id and not getattr(self, "_stack_detects", False) and provider:
+            self._pre_spawn_sessions = self._list_sessions()
+            GLib.timeout_add(3000, self._detect_session_id)
 
         # After enough time for a successful resume, clear the flag so
         # normal user-initiated exits aren't mistaken for resume failures.
         if self._resume_attempted:
             GLib.timeout_add(10_000, self._clear_resume_flag)
 
+        # Pre-fetch models in background so they're cached by the time
+        # the user clicks the header popup.
+        if provider:
+            cli_manager.prefetch_models(provider)
+
     def _clear_resume_flag(self) -> bool:
         """One-shot timeout: resume succeeded if the process is still alive."""
         self._resume_attempted = False
         return False
-
-    # ------------------------------------------------------------------
-    # IDE context prompt injection
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _append_ide_context_prompt(argv: list[str], provider: str | None, editor_ctx: dict) -> None:
-        """Append IDE context instructions to the CLI argv.
-
-        * **Claude CLI** — uses ``--append-system-prompt`` to inject context
-          directly into the model's system prompt.
-        * **Copilot CLI** — writes ``~/.copilot/copilot-instructions.md``
-          (global custom instructions loaded silently) and adds
-          ``--add-dir ~/.zen_ide`` so the model can read the dynamic
-          state file.
-
-        Both CLIs also receive ``ZEN_*`` environment variables (set in
-        ``spawn_shell``), and the dynamic state file is kept up-to-date
-        on every tab switch / file open / close.
-        """
-        if not editor_ctx:
-            return
-
-        from shared.ide_state_writer import get_state_file_path
-
-        lines: list[str] = []
-        lines.append("## Zen IDE Context")
-        lines.append("You are running inside Zen IDE. The user has the following editor state:")
-
-        if editor_ctx.get("active_file"):
-            lines.append(f"- Active file (currently viewing): {editor_ctx['active_file']}")
-        if editor_ctx.get("open_files"):
-            lines.append(f"- Open files: {', '.join(editor_ctx['open_files'])}")
-        if editor_ctx.get("workspace_folders"):
-            lines.append(f"- Workspace folders: {', '.join(editor_ctx['workspace_folders'])}")
-        if editor_ctx.get("workspace_file"):
-            lines.append(f"- Workspace file: {editor_ctx['workspace_file']}")
-        if editor_ctx.get("git_branches"):
-            branches = editor_ctx["git_branches"]
-            if len(branches) == 1:
-                repo, branch = next(iter(branches.items()))
-                lines.append(f"- Git branch: {repo} ({branch})")
-            else:
-                lines.append("- Git branches:")
-                for repo, branch in branches.items():
-                    lines.append(f"  - {repo}: {branch}")
-        elif editor_ctx.get("git_branch"):
-            lines.append(f"- Git branch: {editor_ctx['git_branch']}")
-
-        state_path = get_state_file_path()
-        lines.append(
-            f"\nThis state was captured at launch. For the latest editor state during this conversation, read: {state_path}"
-        )
-
-        prompt = "\n".join(lines)
-
-        if provider == "claude_cli":
-            argv.extend(["--append-system-prompt", prompt])
-        elif provider == "copilot_cli":
-            # Copilot CLI has no --system-prompt flag.  Instead, write
-            # the context into ~/.copilot/copilot-instructions.md (global
-            # custom instructions) which Copilot loads silently on start.
-            _write_copilot_instructions(prompt)
-            state_dir = os.path.dirname(state_path)
-            argv.extend(["--add-dir", state_dir])
 
     def _on_child_exited(self, terminal, status) -> None:
         """Handle CLI exit — detect resume failure and retry fresh."""
@@ -578,23 +318,17 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
 
     def _on_header_click(self, _button) -> None:
         """Show a popup to select the AI CLI provider."""
-
-        claude_bin = _find_claude_binary()
-        copilot_bin = _find_copilot_binary()
+        availability = cli_manager.availability()
+        labels = cli_manager.labels()
         current = self._current_provider or get_setting("ai.provider", "")
 
-        items: list[dict] = [
-            {
-                "label": f"{'✓ ' if current == 'claude_cli' else '  '}Claude{'' if claude_bin else '  ⚠ not installed'}",
-                "action": "claude_cli",
-                "enabled": True,
-            },
-            {
-                "label": f"{'✓ ' if current == 'copilot_cli' else '  '}Copilot{'' if copilot_bin else '  ⚠ not installed'}",
-                "action": "copilot_cli",
-                "enabled": True,
-            },
-        ]
+        items: list[dict] = []
+        for pid in cli_manager.provider_ids:
+            name = labels[pid]
+            installed = availability[pid]
+            check = "✓ " if pid == current else "  "
+            suffix = "" if installed else "  ⚠ not installed"
+            items.append({"label": f"{check}{name}{suffix}", "action": pid, "enabled": True})
 
         parent = self.get_root()
         if parent:
@@ -607,12 +341,7 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
 
         If the selected CLI is not installed, print install instructions instead.
         """
-        binary_finders = {
-            "claude_cli": _find_claude_binary,
-            "copilot_cli": _find_copilot_binary,
-        }
-        finder = binary_finders.get(provider)
-        if finder and not finder():
+        if not cli_manager.find_binary(provider):
             self._show_install_hint(provider)
             return
 
@@ -658,7 +387,8 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
         GLib.timeout_add(200, lambda: self.spawn_shell() or False)
 
     def _update_header_label(self) -> None:
-        label = _CLI_LABELS.get(self._current_provider or "", "AI")
+        labels = cli_manager.labels()
+        label = labels.get(self._current_provider or "", "AI")
         self._ai_header.set_label(label)
         if callable(getattr(self, "on_provider_changed", None)):
             self.on_provider_changed(label)
@@ -674,135 +404,64 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
         return False  # one-shot GLib timeout
 
     # ------------------------------------------------------------------
-    # Claude session ID detection
+    # Session management (delegated to CLI providers)
     # ------------------------------------------------------------------
-
-    def _claude_sessions_dir(self, cwd: str | None = None) -> pathlib.Path | None:
-        """Return the Claude sessions directory for the given or current working directory."""
-        cwd = cwd or self.cwd or os.getcwd()
-        # Claude stores sessions under ~/.claude/projects/<path-hash>/
-        # where path-hash is the absolute path with "/" replaced by "-".
-        slug = cwd.replace("/", "-")
-        sessions_dir = pathlib.Path.home() / ".claude" / "projects" / slug
-        return sessions_dir if sessions_dir.is_dir() else None
-
-    def _find_session_file(self, session_id: str) -> pathlib.Path | None:
-        """Find a session JSONL file across all Claude project directories."""
-        projects_dir = pathlib.Path.home() / ".claude" / "projects"
-        if not projects_dir.is_dir():
-            return None
-        for project_dir in projects_dir.iterdir():
-            if not project_dir.is_dir():
-                continue
-            candidate = project_dir / f"{session_id}.jsonl"
-            if candidate.exists():
-                return candidate
-        return None
 
     def validate_session_id(self) -> None:
-        """Check that _session_id exists on disk; clear if stale.
-
-        First checks the current project dir (fast path), then falls back to
-        searching all project directories.  This handles the case where a tab's
-        session was created under a different cwd than the current one (e.g.
-        after IDE restart when change_directory overrides all cwds).
-        """
-        if not self._session_id:
+        """Check that _session_id exists on disk; clear if stale."""
+        if not self._session_id or not self._current_provider:
             return
-        if self._current_provider == "copilot_cli":
-            d = self._copilot_sessions_dir()
-            if d and (d / self._session_id).is_dir():
-                return
+        p = cli_manager.get(self._current_provider)
+        if not p or not p.session_exists(self._session_id, cwd=self.cwd):
             self._session_id = None
-            return
-        d = self._claude_sessions_dir()
-        if d and (d / f"{self._session_id}.jsonl").exists():
-            return
-        # Fallback: search across all Claude project directories
-        if self._find_session_file(self._session_id):
-            return
-        self._session_id = None
 
-    def _list_claude_sessions(self) -> set[str]:
-        """Return the set of session IDs (JSONL filenames) currently on disk."""
-        d = self._claude_sessions_dir()
-        if not d:
-            return set()
-        return {f.stem for f in d.glob("*.jsonl")}
+    def _list_sessions(self) -> set[str]:
+        """Return the set of session IDs currently on disk for the active provider."""
+        p = cli_manager.get(self._current_provider) if self._current_provider else None
+        return p.list_sessions(cwd=self.cwd) if p else set()
 
-    # ------------------------------------------------------------------
-    # Copilot session ID detection
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _copilot_sessions_dir() -> pathlib.Path | None:
-        """Return the Copilot session-state directory."""
-        d = pathlib.Path.home() / ".copilot" / "session-state"
-        return d if d.is_dir() else None
-
-    def _list_copilot_sessions(self) -> set[str]:
-        """Return the set of Copilot session IDs (directories) on disk."""
-        d = self._copilot_sessions_dir()
-        if not d:
-            return set()
-        return {p.name for p in d.iterdir() if p.is_dir()}
+    def _sessions_dir(self):
+        """Return the sessions directory path for the active provider."""
+        p = cli_manager.get(self._current_provider) if self._current_provider else None
+        return p.sessions_dir(cwd=self.cwd) if p else None
 
     def _detect_session_id(self) -> bool:
         """Detect the session ID created by the just-spawned CLI."""
-        pre = getattr(self, "_pre_spawn_sessions", set())
-        is_copilot = self._current_provider == "copilot_cli"
-        current = self._list_copilot_sessions() if is_copilot else self._list_claude_sessions()
+        pre = getattr(self, "_pre_spawn_sessions", None) or set()
+        current = self._list_sessions()
         new_sessions = current - pre
+
+        p = cli_manager.get(self._current_provider) if self._current_provider else None
+        sessions_dir = p.sessions_dir(cwd=self.cwd) if p else None
+
         if len(new_sessions) == 1:
             self._session_id = new_sessions.pop()
-        elif len(new_sessions) > 1:
+        elif len(new_sessions) > 1 and sessions_dir:
             # Multiple new sessions (unlikely) — pick the most recent
-            if is_copilot:
-                d = self._copilot_sessions_dir()
-                if d:
-                    best, best_mtime = None, 0.0
-                    for sid in new_sessions:
-                        try:
-                            mt = (d / sid).stat().st_mtime
-                            if mt > best_mtime:
-                                best, best_mtime = sid, mt
-                        except OSError:
-                            pass
-                    if best:
-                        self._session_id = best
-            else:
-                d = self._claude_sessions_dir()
-                if d:
-                    best, best_mtime = None, 0.0
-                    for sid in new_sessions:
-                        p = d / f"{sid}.jsonl"
-                        try:
-                            mt = p.stat().st_mtime
-                            if mt > best_mtime:
-                                best, best_mtime = sid, mt
-                        except OSError:
-                            pass
-                    if best:
-                        self._session_id = best
-        elif not new_sessions and not self._session_id:
+            best, best_mtime = None, 0.0
+            for sid in new_sessions:
+                try:
+                    # Try both file patterns (file vs directory)
+                    candidate = sessions_dir / sid
+                    if not candidate.exists():
+                        candidate = sessions_dir / f"{sid}.jsonl"
+                    mt = candidate.stat().st_mtime
+                    if mt > best_mtime:
+                        best, best_mtime = sid, mt
+                except OSError:
+                    pass
+            if best:
+                self._session_id = best
+        elif not new_sessions and not self._session_id and sessions_dir:
             # --continue was used and no new file appeared — the CLI reused
             # the most recent session.  Find it by modification time.
-            if is_copilot:
-                d = self._copilot_sessions_dir()
-                if d:
-                    try:
-                        latest = max((p for p in d.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime)
-                        self._session_id = latest.name
-                    except (ValueError, OSError):
-                        pass
-            else:
-                d = self._claude_sessions_dir()
-                if d:
-                    try:
-                        latest = max(d.glob("*.jsonl"), key=lambda f: f.stat().st_mtime)
-                        self._session_id = latest.stem
-                    except (ValueError, OSError):
-                        pass
+            try:
+                entries = list(sessions_dir.iterdir())
+                if entries:
+                    latest = max(entries, key=lambda f: f.stat().st_mtime)
+                    self._session_id = latest.stem if latest.suffix else latest.name
+            except (ValueError, OSError):
+                pass
         self._pre_spawn_sessions = None  # cleanup
         return False  # one-shot GLib timeout
 
