@@ -1398,3 +1398,61 @@ class NvimPopup(Gtk.Window):
         label.set_halign(Gtk.Align.START)
         label.add_css_class("nvim-popup-status")
         return label
+
+    def _create_button_row(self, *buttons, default_focus: int = -1) -> tuple[Gtk.Box, list]:
+        """Create a centered button row with optional cycling support.
+
+        Args:
+            *buttons: Tuples of (label, callback) or (label, callback, kwargs).
+                      kwargs can include primary=True, danger=True.
+            default_focus: Index of button to focus initially (-1 = last).
+
+        Returns:
+            (Gtk.Box, list of button widgets)
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box.set_halign(Gtk.Align.CENTER)
+        box.set_margin_top(16)
+
+        btn_widgets = []
+        for item in buttons:
+            label, callback = item[0], item[1]
+            kwargs = item[2] if len(item) > 2 else {}
+            btn = self._create_button(label, **kwargs)
+            if callback:
+                btn.connect("clicked", lambda b, cb=callback: cb())
+            btn_widgets.append(btn)
+            box.append(btn)
+
+        self._buttons = btn_widgets
+        self._selected_idx = default_focus if default_focus >= 0 else len(btn_widgets) - 1
+        return box, btn_widgets
+
+    def _close_with_result(self, result, callback=None):
+        """Close the popup, set result, and call optional callback."""
+        self._result = result
+        self.close()
+        if callback:
+            callback()
+
+    def _handle_button_navigation(self, keyval, state) -> bool:
+        """Handle Tab/Shift-Tab/h/l/Left/Right cycling for button rows.
+
+        Call from _on_key_pressed to add vim-style button navigation.
+        Returns True if the key was handled.
+        """
+        if not getattr(self, "_buttons", None):
+            return False
+        num = len(self._buttons)
+        delta = None
+        if keyval == Gdk.KEY_Tab:
+            delta = -1 if state & Gdk.ModifierType.SHIFT_MASK else 1
+        elif keyval in (Gdk.KEY_h, Gdk.KEY_Left):
+            delta = -1
+        elif keyval in (Gdk.KEY_l, Gdk.KEY_Right):
+            delta = 1
+        if delta is not None:
+            self._selected_idx = (self._selected_idx + delta) % num
+            self._buttons[self._selected_idx].grab_focus()
+            return True
+        return False

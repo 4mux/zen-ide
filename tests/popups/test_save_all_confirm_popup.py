@@ -4,7 +4,6 @@ from tests.popups.conftest import (
     class_inherits,
     find_class,
     find_method,
-    method_uses_modulo,
     parse_popup_source,
     read_popup_source,
 )
@@ -37,6 +36,14 @@ class TestSaveAllConfirmPopupStructure:
         cls = find_class(tree, "SaveAllConfirmPopup")
         assert find_method(cls, "_do_cancel") is not None
 
+    def test_uses_create_button_row(self):
+        source = read_popup_source("save_all_confirm_popup.py")
+        assert "_create_button_row" in source
+
+    def test_uses_close_with_result(self):
+        source = read_popup_source("save_all_confirm_popup.py")
+        assert "_close_with_result" in source
+
 
 class TestSaveAllConfirmPopupKeyHandling:
     """Verify key handling patterns."""
@@ -57,23 +64,22 @@ class TestSaveAllConfirmPopupKeyHandling:
         source = read_popup_source("save_all_confirm_popup.py")
         assert "KEY_Escape" in source
 
-    def test_tab_cycles_buttons(self):
+    def test_delegates_button_navigation(self):
+        """Button cycling is delegated to the base class helper."""
         source = read_popup_source("save_all_confirm_popup.py")
-        assert "KEY_Tab" in source
-
-    def test_h_l_navigate_buttons(self):
-        source = read_popup_source("save_all_confirm_popup.py")
-        assert "KEY_h" in source
-        assert "KEY_l" in source
+        assert "_handle_button_navigation" in source
 
 
 class TestSaveAllConfirmPopupButtonCycling:
     """Test button cycling logic (3 buttons, modulo wrap)."""
 
-    def test_tab_uses_modulo(self):
-        tree = parse_popup_source("save_all_confirm_popup.py")
-        cls = find_class(tree, "SaveAllConfirmPopup")
-        method = find_method(cls, "_on_key_pressed")
+    def test_base_class_uses_modulo(self):
+        """Button cycling in base class must use modulo for wrap-around."""
+        from tests.popups.conftest import method_uses_modulo
+
+        tree = parse_popup_source("nvim_popup.py")
+        cls = find_class(tree, "NvimPopup")
+        method = find_method(cls, "_handle_button_navigation")
         assert method_uses_modulo(method), "Button cycling must use modulo for wrap-around"
 
     def test_tab_forward_cycling(self):
@@ -93,10 +99,10 @@ class TestSaveAllConfirmPopupFileList:
     """Test file list display logic."""
 
     def test_shows_up_to_5_files(self):
-        """When ≤ 5 files, all should be shown."""
+        """When <= 5 files, all should be shown."""
         filenames = ["a.py", "b.py", "c.py"]
         if len(filenames) <= 5:
-            text = "\n".join(f"  • {f}" for f in filenames)
+            text = "\n".join(f"  \u2022 {f}" for f in filenames)
         assert "a.py" in text
         assert "b.py" in text
         assert "c.py" in text
@@ -105,9 +111,9 @@ class TestSaveAllConfirmPopupFileList:
         """When > 5 files, show first 5 plus 'and N more'."""
         filenames = ["a.py", "b.py", "c.py", "d.py", "e.py", "f.py", "g.py"]
         if len(filenames) <= 5:
-            text = "\n".join(f"  • {f}" for f in filenames)
+            text = "\n".join(f"  \u2022 {f}" for f in filenames)
         else:
-            text = "\n".join(f"  • {f}" for f in filenames[:5])
+            text = "\n".join(f"  \u2022 {f}" for f in filenames[:5])
             text += f"\n  ... and {len(filenames) - 5} more"
         assert "e.py" in text
         assert "f.py" not in text.split("...")[0]  # f.py not in visible items

@@ -10,7 +10,7 @@ lines" means for their terminal mode (real adjustment vs SGR mouse events).
 
 from __future__ import annotations
 
-from gi.repository import GLib, Gtk
+from gi.repository import Gdk, GLib, Gtk
 
 from constants import TERMINAL_SCROLLBAR_HIDE_DELAY_MS
 
@@ -78,11 +78,9 @@ class JogWheelScrollbarMixin:
         hover.connect("leave", lambda *_: self._on_vscrollbar_hover(False))
         self._vscrollbar.add_controller(hover)
 
-        drag = Gtk.GestureDrag.new()
-        drag.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        drag.connect("drag-begin", lambda *_: setattr(self, "_jog_dragging", True))
-        drag.connect("drag-end", self._on_jog_drag_end)
-        self._vscrollbar.add_controller(drag)
+        btn_ctrl = Gtk.EventControllerLegacy.new()
+        btn_ctrl.connect("event", self._on_scrollbar_btn_event)
+        self._vscrollbar.add_controller(btn_ctrl)
 
         overlay.set_child(scrolled)
         overlay.add_overlay(self._vscrollbar)
@@ -180,15 +178,22 @@ class JogWheelScrollbarMixin:
                 self._hide_virtual_scrollbar,
             )
 
-    def _on_jog_drag_end(self, gesture, offset_x, offset_y) -> None:
-        """Handle drag release — snap to center and schedule hide."""
-        self._jog_dragging = False
-        self._jog_snap_to_center()
-        if not self._vscroll_hovering:
-            self._vscroll_hide_id = GLib.timeout_add(
-                TERMINAL_SCROLLBAR_HIDE_DELAY_MS,
-                self._hide_virtual_scrollbar,
-            )
+    def _on_scrollbar_btn_event(self, _ctrl, event) -> bool:
+        """Track button press/release on scrollbar without consuming events."""
+        if event is None:
+            return False
+        etype = event.get_event_type()
+        if etype == Gdk.EventType.BUTTON_PRESS:
+            self._jog_dragging = True
+        elif etype == Gdk.EventType.BUTTON_RELEASE:
+            self._jog_dragging = False
+            self._jog_snap_to_center()
+            if not self._vscroll_hovering:
+                self._vscroll_hide_id = GLib.timeout_add(
+                    TERMINAL_SCROLLBAR_HIDE_DELAY_MS,
+                    self._hide_virtual_scrollbar,
+                )
+        return False  # propagate — let scrollbar handle the drag internally
 
     def _cancel_virtual_scrollbar_hide(self) -> None:
         if self._vscroll_hide_id:

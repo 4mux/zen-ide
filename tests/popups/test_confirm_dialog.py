@@ -33,6 +33,14 @@ class TestConfirmDialogStructure:
         cls = find_class(tree, "ConfirmDialog")
         assert find_method(cls, "present") is not None
 
+    def test_uses_create_button_row(self):
+        source = read_popup_source("confirm_dialog.py")
+        assert "_create_button_row" in source
+
+    def test_uses_close_with_result(self):
+        source = read_popup_source("confirm_dialog.py")
+        assert "_close_with_result" in source
+
 
 class TestConfirmDialogKeyHandling:
     """Verify key handling patterns in source code."""
@@ -69,15 +77,15 @@ class TestConfirmDialogCallbacks:
         source = read_popup_source("confirm_dialog.py")
         assert "_on_cancel" in source
 
-    def test_sets_result_on_confirm(self):
-        """Confirming should set _result = True."""
+    def test_close_with_result_true_on_confirm(self):
+        """Confirming should call _close_with_result(True, ...)."""
         source = read_popup_source("confirm_dialog.py")
-        assert "self._result = True" in source
+        assert "_close_with_result(True" in source
 
-    def test_sets_result_on_cancel(self):
-        """Cancelling should set _result = False."""
+    def test_close_with_result_false_on_cancel(self):
+        """Cancelling should call _close_with_result(False, ...)."""
         source = read_popup_source("confirm_dialog.py")
-        assert "self._result = False" in source
+        assert "_close_with_result(False" in source
 
 
 class TestConfirmDialogButtonCycling:

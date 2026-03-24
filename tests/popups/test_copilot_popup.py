@@ -31,6 +31,10 @@ class TestCopilotPopupStructure:
         cls = find_class(tree, "CopilotPopup")
         assert find_method(cls, "_on_confirm_clicked") is not None
 
+    def test_uses_create_button_row(self):
+        source = read_popup_source("copilot_popup.py")
+        assert "_create_button_row" in source
+
 
 class TestCopilotPopupKeyHandling:
     """Verify key handling."""

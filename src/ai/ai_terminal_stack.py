@@ -758,13 +758,21 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
 
         # Now spawn all views
         if resume:
+            used_continue = False
             for view in self._views:
-                # Resume if we have a session ID, or if the tab had a
-                # conversation (title inferred) — spawn_shell will use
-                # --continue as fallback when session_id is missing.
                 has_session = bool(getattr(view, "_session_id", None))
-                had_conversation = getattr(view, "_title_inferred", False)
-                view.spawn_shell(resume=has_session or had_conversation)
+                if has_session:
+                    # Has a saved session ID — resume it directly.
+                    view.spawn_shell(resume=True)
+                elif not used_continue and getattr(view, "_title_inferred", False):
+                    # No session ID but had a conversation — use --continue
+                    # for AT MOST one tab to avoid multiple tabs resuming the
+                    # same (most recent) session.
+                    view.spawn_shell(resume=True)
+                    used_continue = True
+                else:
+                    # No session to resume — start fresh.
+                    view.spawn_shell(resume=False)
         else:
             for view in self._views:
                 view.spawn_shell(resume=False)
@@ -796,6 +804,7 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         views, pre_sessions = pending
         self._pending_detect_claude = None
         self._detect_sessions_generic(views, pre_sessions, is_copilot=False)
+        self._persist_tabs()
         return False
 
     def _detect_sessions_copilot(self) -> bool:
@@ -806,6 +815,7 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         views, pre_sessions = pending
         self._pending_detect_copilot = None
         self._detect_sessions_generic(views, pre_sessions, is_copilot=True)
+        self._persist_tabs()
         return False
 
     def _detect_sessions_generic(self, views: list, pre_sessions: set, *, is_copilot: bool) -> None:

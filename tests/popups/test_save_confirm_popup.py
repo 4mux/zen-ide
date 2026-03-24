@@ -4,7 +4,6 @@ from tests.popups.conftest import (
     class_inherits,
     find_class,
     find_method,
-    method_uses_modulo,
     parse_popup_source,
     read_popup_source,
 )
@@ -37,6 +36,14 @@ class TestSaveConfirmPopupStructure:
         cls = find_class(tree, "SaveConfirmPopup")
         assert find_method(cls, "_do_cancel") is not None
 
+    def test_uses_create_button_row(self):
+        source = read_popup_source("save_confirm_popup.py")
+        assert "_create_button_row" in source
+
+    def test_uses_close_with_result(self):
+        source = read_popup_source("save_confirm_popup.py")
+        assert "_close_with_result" in source
+
 
 class TestSaveConfirmPopupKeyHandling:
     """Verify key handling patterns."""
@@ -61,39 +68,33 @@ class TestSaveConfirmPopupKeyHandling:
         source = read_popup_source("save_confirm_popup.py")
         assert "KEY_Return" in source
 
-    def test_tab_cycles_buttons(self):
+    def test_delegates_button_navigation(self):
+        """Button cycling is delegated to the base class helper."""
         source = read_popup_source("save_confirm_popup.py")
-        assert "KEY_Tab" in source
-
-    def test_h_l_navigate_buttons(self):
-        source = read_popup_source("save_confirm_popup.py")
-        assert "KEY_h" in source
-        assert "KEY_l" in source
-
-    def test_arrow_keys_navigate_buttons(self):
-        source = read_popup_source("save_confirm_popup.py")
-        assert "KEY_Left" in source
-        assert "KEY_Right" in source
+        assert "_handle_button_navigation" in source
 
 
 class TestSaveConfirmPopupButtonCycling:
     """Test button cycling logic (3 buttons, modulo wrap)."""
 
-    def test_tab_uses_modulo(self):
-        tree = parse_popup_source("save_confirm_popup.py")
-        cls = find_class(tree, "SaveConfirmPopup")
-        method = find_method(cls, "_on_key_pressed")
+    def test_base_class_uses_modulo(self):
+        """Button cycling in base class must use modulo for wrap-around."""
+        from tests.popups.conftest import method_uses_modulo
+
+        tree = parse_popup_source("nvim_popup.py")
+        cls = find_class(tree, "NvimPopup")
+        method = find_method(cls, "_handle_button_navigation")
         assert method_uses_modulo(method), "Button cycling must use modulo for wrap-around"
 
     def test_tab_forward_cycling(self):
-        """Tab should cycle: 0→1→2→0."""
+        """Tab should cycle: 0->1->2->0."""
         num_buttons = 3
         idx = 2
         idx = (idx + 1) % num_buttons
         assert idx == 0
 
     def test_shift_tab_backward_cycling(self):
-        """Shift+Tab should cycle: 0→2→1→0."""
+        """Shift+Tab should cycle: 0->2->1->0."""
         num_buttons = 3
         idx = 0
         idx = (idx - 1) % num_buttons
