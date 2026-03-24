@@ -206,23 +206,22 @@ class TestLogAiActivity:
 
         log_ai_activity("How do I sort a list?")
 
-        call_kwargs = mock_storage.add_activity.call_args
+        call_kwargs = mock_storage.update_or_add_activity.call_args
         assert call_kwargs[1]["activity_type"] == "ai_chat"
-        assert "How do I sort a list?" in call_kwargs[1]["title"]
+        assert call_kwargs[1]["title"] == "AI Chat"
+        assert "How do I sort a list?" in call_kwargs[1]["description"]
 
     @patch("dev_pad.dev_pad.get_dev_pad_storage")
-    def test_long_question_truncated_in_title(self, mock_get_storage):
+    def test_long_question_truncated_in_description(self, mock_get_storage):
         mock_storage = MagicMock()
         mock_get_storage.return_value = mock_storage
 
         long_q = "x" * 100
         log_ai_activity(long_q)
 
-        call_kwargs = mock_storage.add_activity.call_args
-        assert len(call_kwargs[1]["title"]) < 100
-        assert "..." in call_kwargs[1]["title"]
-        # Full question in description
-        assert call_kwargs[1]["description"] == long_q
+        call_kwargs = mock_storage.update_or_add_activity.call_args
+        assert len(call_kwargs[1]["description"]) < 100
+        assert "..." in call_kwargs[1]["description"]
 
     @patch("dev_pad.dev_pad.get_dev_pad_storage")
     def test_with_chat_id(self, mock_get_storage):
@@ -231,7 +230,7 @@ class TestLogAiActivity:
 
         log_ai_activity("Hello", chat_id="chat-42")
 
-        call_kwargs = mock_storage.add_activity.call_args
+        call_kwargs = mock_storage.update_or_add_activity.call_args
         assert call_kwargs[1]["link_type"] == "ai_chat"
         assert call_kwargs[1]["link_target"] == "chat-42"
 
@@ -242,8 +241,19 @@ class TestLogAiActivity:
 
         log_ai_activity("Hello")
 
-        call_kwargs = mock_storage.add_activity.call_args
+        call_kwargs = mock_storage.update_or_add_activity.call_args
         assert call_kwargs[1]["link_type"] is None
+
+    @patch("dev_pad.dev_pad.get_dev_pad_storage")
+    def test_with_custom_title(self, mock_get_storage):
+        mock_storage = MagicMock()
+        mock_get_storage.return_value = mock_storage
+
+        log_ai_activity("Fix the bug", chat_id="sess-1", title="Debug Session")
+
+        call_kwargs = mock_storage.update_or_add_activity.call_args
+        assert call_kwargs[1]["title"] == "Debug Session"
+        assert call_kwargs[1]["link_target"] == "sess-1"
 
 
 class TestLogGitActivity:

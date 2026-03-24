@@ -347,6 +347,12 @@ class WindowActionsMixin:
         self._focused_panel = "ai_chat"
         self.ai_chat.focus_input()
 
+    def _on_open_ai_chat(self, session_id: str):
+        """Focus or restore an AI session from Dev Pad."""
+        # Ensure AI panel is visible
+        self.ai_chat.set_visible(True)
+        self.ai_chat.focus_session(session_id)
+
     def _on_stop_ai(self, action, param):
         """Stop AI generation if processing, or close diff view."""
         if self.ai_chat.is_processing():

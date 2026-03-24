@@ -26,11 +26,14 @@ def _strip_escape_fragments(text: str) -> str:
 
     The commit signal can include terminal capability responses (e.g.
     ``[?1;2c``, ``[200~``) whose ESC byte (0x1b) is filtered out but
-    whose remaining chars (``[``, digits, ``?``, ``;``, letters) leak
-    into the input buffer.
+    whose remaining chars leak into the input buffer.
     """
-    # CSI-style fragments: "[" optionally followed by "?" then digits/semicolons then a letter
-    text = re.sub(r"\[[\?]?[\d;]*[A-Za-z~]", "", text)
+    # CSI-style fragments: "[" then parameters then a letter/~
+    text = re.sub(r"\[(?:\?[\d;]*|[\d;]+)[A-Za-z~]", "", text)
+    # DA2 residue: ">digits;digits;digitsc"
+    text = re.sub(r">[\d;]+[A-Za-z]", "", text)
+    # Strip leading non-alphanumeric junk (stray ;?> etc from escape params)
+    text = re.sub(r"^[^a-zA-Z0-9]*", "", text)
     return text.strip()
 
 
@@ -59,6 +62,7 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
         self._resume_spawn_time: float = 0.0
         self._jog_init_fields()
         self.on_title_inferred = None  # callback(title: str)
+        self.on_user_prompt = None  # callback(user_text: str)
         self.on_processing_changed = None  # callback(processing: bool)
         self._get_workspace_folders = get_workspace_folders_callback
         self._get_editor_context = get_editor_context_callback
@@ -398,9 +402,23 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
     # ------------------------------------------------------------------
 
     def _enable_commit_tracking(self) -> bool:
-        """Called after startup delay — begin processing commit signals."""
+        """Called after startup delay — clean up any startup noise.
+
+        The commit handler always runs (no gating), so user input typed
+        before this fires is already in the buffer.  Strip any escape
+        residue that leaked through, but preserve real user chars.
+        """
         self._commit_ready = True
-        self._input_buf.clear()
+        # Strip startup noise but keep any user input already typed
+        if self._input_buf and not self._title_inferred:
+            cleaned = _strip_escape_fragments("".join(self._input_buf))
+            self._input_buf.clear()
+            if cleaned:
+                self._input_buf.extend(cleaned)
+        elif not self._title_inferred:
+            self._input_buf.clear()
+        self._in_escape_seq = False
+        self._in_osc_seq = False
         return False  # one-shot GLib timeout
 
     # ------------------------------------------------------------------
@@ -470,29 +488,36 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
 
         Also drives the spinner: Enter → processing=True, next typing → processing=False.
         """
-        if not self._commit_ready:
-            return
         for ch in text:
             # Skip escape sequences (e.g. focus-in/out \x1b[I / \x1b[O,
             # cursor reports, bracketed-paste markers) so their trailing
             # printable bytes aren't mistaken for real user input.
             if ch == "\x1b":
                 self._in_escape_seq = True
-                self._in_osc_seq = False
+                # If inside OSC/DCS payload, keep _in_osc_seq so the
+                # following \\ (ST) can properly terminate it.
+                if not self._in_osc_seq:
+                    self._in_osc_seq = False
                 continue
             if self._in_escape_seq:
-                if not self._in_osc_seq:
-                    if ch == "]":
-                        # OSC sequence (\x1b]...BEL) — skip until BEL
-                        self._in_osc_seq = True
-                    elif ch.isalpha() or ch == "~":
-                        # CSI/short sequences end at an alpha char or ~
-                        self._in_escape_seq = False
-                else:
-                    # Inside OSC payload — ends at BEL (\x07)
+                if self._in_osc_seq:
                     if ch == "\x07":
+                        # BEL terminates OSC/DCS
                         self._in_escape_seq = False
                         self._in_osc_seq = False
+                    elif ch == "\\":
+                        # ST (\x1b\\) terminates OSC/DCS
+                        self._in_escape_seq = False
+                        self._in_osc_seq = False
+                elif ch == "]":
+                    # OSC sequence (\x1b]...BEL/ST)
+                    self._in_osc_seq = True
+                elif ch == "P":
+                    # DCS sequence (\x1bP...ST)
+                    self._in_osc_seq = True
+                elif ch.isalpha() or ch == "~":
+                    # CSI/short sequences end at an alpha char or ~
+                    self._in_escape_seq = False
                 continue
 
             if ch in ("\r", "\n"):
@@ -510,14 +535,18 @@ class AITerminalView(JogWheelScrollbarMixin, TerminalView):
                         if callable(self.on_processing_changed):
                             self.on_processing_changed(True)
 
-                    # Infer tab title from the very first user message
+                    # Infer tab title from user message (keep trying until one sticks)
                     if not self._title_inferred:
-                        self._title_inferred = True
                         from ai.tab_title_inferrer import infer_title
 
                         title = infer_title([{"role": "user", "content": user_text}])
                         if title and callable(self.on_title_inferred):
+                            self._title_inferred = True
                             self.on_title_inferred(title)
+
+                    # Notify about every user prompt (for Dev Pad tracking)
+                    if callable(self.on_user_prompt):
+                        self.on_user_prompt(user_text)
             elif ch == "\x7f":  # backspace
                 if self._input_buf:
                     self._input_buf.pop()

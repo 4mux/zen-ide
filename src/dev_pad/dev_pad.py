@@ -518,11 +518,6 @@ class DevPad(Gtk.Box):
             title_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
             title_label.set_xalign(0)
 
-            # Add click gesture
-            click = Gtk.GestureClick.new()
-            click.connect("released", lambda g, n, x, y, a=activity: self._on_link_click(a))
-            title_label.add_controller(click)
-
             # Store activity reference
             self._link_tag_counter += 1
             tag = f"link_{self._link_tag_counter}"
@@ -541,6 +536,13 @@ class DevPad(Gtk.Box):
 
         main_box.append(top_row)
 
+        # Make the entire row clickable if there is a link target
+        if activity.link_target:
+            main_box.set_cursor_from_name("pointer")
+            row_click = Gtk.GestureClick.new()
+            row_click.connect("released", lambda g, n, x, y, a=activity: self._on_link_click(a))
+            main_box.add_controller(row_click)
+
         # Sketch preview (for sketch activities with content in metadata)
         if activity.activity_type == "sketch" and activity.metadata.get("content"):
             preview_text = self._get_sketch_preview(activity.metadata["content"])
@@ -549,11 +551,6 @@ class DevPad(Gtk.Box):
                 preview_label.set_halign(Gtk.Align.START)
                 preview_label.add_css_class("dev-pad-sketch-preview")
                 preview_label.set_xalign(0)
-                # Make the preview clickable too
-                if activity.link_target:
-                    click = Gtk.GestureClick.new()
-                    click.connect("released", lambda g, n, x, y, a=activity: self._on_link_click(a))
-                    preview_label.add_controller(click)
                 main_box.append(preview_label)
         # Description (if different from title)
         elif activity.description and activity.description != activity.title:
@@ -928,15 +925,20 @@ def remove_new_file_activity(activity_id: str):
     storage.delete_activity(activity_id)
 
 
-def log_ai_activity(question: str, chat_id: Optional[str] = None):
-    """Log an AI chat activity."""
-    storage = get_dev_pad_storage()
-    short_question = question[:60] + "..." if len(question) > 60 else question
+def log_ai_activity(question: str, chat_id: Optional[str] = None, title: Optional[str] = None):
+    """Log an AI chat activity.
 
-    storage.add_activity(
+    If *chat_id* (session ID) is provided, updates the existing row for that
+    session (moving it to the top) instead of creating a duplicate.
+    """
+    storage = get_dev_pad_storage()
+    display_title = title or "AI Chat"
+    short_question = question[:80] + "..." if len(question) > 80 else question
+
+    storage.update_or_add_activity(
         activity_type="ai_chat",
-        title=f"AI: {short_question}",
-        description=question,
+        title=display_title,
+        description=short_question,
         link_type="ai_chat" if chat_id else None,
         link_target=chat_id,
     )

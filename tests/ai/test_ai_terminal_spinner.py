@@ -25,6 +25,7 @@ def _make_view():
     view._waiting_for_response = False
     view._commit_ready = True
     view._in_escape_seq = False
+    view._in_osc_seq = False
     view._idle_poll_id = 0
     view._last_contents_serial = 0
     view._vscroll_adj = MagicMock()
@@ -36,6 +37,7 @@ def _make_view():
     view._vscrollbar = MagicMock()
     view.on_processing_changed = MagicMock()
     view.on_title_inferred = None
+    view.on_user_prompt = None
     view.shell_pid = 42
     view.terminal = MagicMock()
     return view
@@ -63,6 +65,34 @@ class TestStripEscapeFragments:
 
     def test_mixed(self):
         assert _strip_escape_fragments("hello[?1;2c world") == "hello world"
+
+    def test_does_not_eat_user_input_after_bracket(self):
+        """Regression: '[p' from '[ping' was matched as escape fragment."""
+        assert _strip_escape_fragments("[ping") == "[ping" or _strip_escape_fragments("[ping").endswith("ping")
+        # Single letter after [ without params must NOT be stripped
+        assert "ping" in _strip_escape_fragments("[ping")
+        assert "hello" in _strip_escape_fragments("[hello")
+
+    def test_requires_params_in_csi_fragment(self):
+        """CSI fragments need digits or ? between [ and the final letter."""
+        assert _strip_escape_fragments("[?25h") == ""
+        assert _strip_escape_fragments("[200~") == ""
+        assert _strip_escape_fragments("[1;2c") == ""
+        # No params → not a fragment
+        assert _strip_escape_fragments("ping") == "ping"
+
+    def test_da2_residue(self):
+        """DA2 response residue like '>65;6003;1c' is stripped."""
+        assert _strip_escape_fragments(">65;6003;1c") == ""
+        assert _strip_escape_fragments(">65;6003;1cping") == "ping"
+
+    def test_leading_junk_stripped(self):
+        """Leading non-alphanumeric chars from escape params are stripped."""
+        assert _strip_escape_fragments(";?>ping") == "ping"
+
+    def test_preserves_leading_digits(self):
+        """User input starting with digits is preserved."""
+        assert _strip_escape_fragments("3 things to fix") == "3 things to fix"
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +169,41 @@ class TestEscapeSequenceFiltering:
         assert view._waiting_for_response is True
         assert view._in_escape_seq is False
 
+    def test_dcs_sequence_fully_consumed(self):
+        """Regression: DCS (\x1bP...\x1b\\) like XTVERSION must not leak payload."""
+        view = _make_view()
+        view._waiting_for_response = True
+
+        # XTVERSION response: \x1bP>|VTE(6003)\x1b\\
+        _send_commit(view, "\x1bP>|VTE(6003)\x1b\\")
+
+        # All consumed — no printable chars should reach the buffer
+        assert view._input_buf == []
+        assert view._waiting_for_response is True
+        view.on_processing_changed.assert_not_called()
+
+    def test_dcs_across_commits(self):
+        """DCS split across two commit calls is still consumed."""
+        view = _make_view()
+
+        _send_commit(view, "\x1bP>|VTE")
+        assert view._in_escape_seq is True
+        assert view._in_osc_seq is True  # DCS uses osc-like payload mode
+
+        _send_commit(view, "(6003)\x1b\\")
+        assert view._in_escape_seq is False
+        assert view._input_buf == []
+
+    def test_osc_sequence_consumed(self):
+        """OSC (\x1b]...BEL) sequences are fully consumed."""
+        view = _make_view()
+        view._waiting_for_response = True
+
+        _send_commit(view, "\x1b]0;window title\x07")
+
+        assert view._input_buf == []
+        assert view._waiting_for_response is True
+
 
 # ---------------------------------------------------------------------------
 # Commit handler state machine
@@ -183,14 +248,16 @@ class TestCommitStateMachine:
         assert view._waiting_for_response is False
         view.on_processing_changed.assert_called_once_with(False)
 
-    def test_commit_ready_false_ignores_everything(self):
+    def test_commit_always_processes_input(self):
+        """Commits are processed even before _commit_ready (no gating)."""
         view = _make_view()
         view._commit_ready = False
 
         _send_commit(view, "hello\r")
 
-        assert view._waiting_for_response is False
-        view.on_processing_changed.assert_not_called()
+        # Input is processed regardless of _commit_ready
+        assert view._waiting_for_response is True
+        view.on_processing_changed.assert_called_once_with(True)
 
     def test_second_enter_while_waiting_restarts_cycle(self):
         """Typing a new prompt while waiting stops then restarts the spinner."""
@@ -206,6 +273,103 @@ class TestCommitStateMachine:
         calls = [c.args for c in view.on_processing_changed.call_args_list]
         assert calls == [(False,), (True,)]
         assert view._waiting_for_response is True
+
+
+# ---------------------------------------------------------------------------
+# Title inference regression tests
+# ---------------------------------------------------------------------------
+
+
+class TestTitleInference:
+    """Regression tests for tab title inference from user input."""
+
+    def test_title_inferred_on_first_message(self):
+        """Title should be inferred from the very first user message."""
+        view = _make_view()
+        view._title_inferred = False
+        view.on_title_inferred = MagicMock()
+
+        _send_commit(view, "fix the bug in main.py\r")
+
+        assert view._title_inferred is True
+        view.on_title_inferred.assert_called_once()
+        title = view.on_title_inferred.call_args[0][0]
+        assert len(title) > 0
+        assert "fix" in title.lower() or "bug" in title.lower()
+
+    def test_title_not_set_if_infer_returns_none(self):
+        """Regression: _title_inferred must stay False if infer_title returns None."""
+        view = _make_view()
+        view._title_inferred = False
+        view.on_title_inferred = MagicMock()
+
+        # Single char — too short to infer
+        _send_commit(view, "x\r")
+
+        # Title was not inferred — flag should remain False so next message retries
+        if not view.on_title_inferred.called:
+            assert view._title_inferred is False
+
+    def test_title_retries_on_subsequent_messages(self):
+        """If first message doesn't produce a title, subsequent messages should retry."""
+        view = _make_view()
+        view._title_inferred = False
+        view.on_title_inferred = MagicMock()
+
+        # First message might not produce a good title
+        _send_commit(view, "\r")  # empty
+        assert view._title_inferred is False
+
+        # Second message should still try
+        _send_commit(view, "fix the bug in main.py\r")
+        assert view._title_inferred is True
+        view.on_title_inferred.assert_called_once()
+
+    def test_startup_noise_does_not_corrupt_title(self):
+        """Regression: VTE startup escape sequences must not appear in title."""
+        view = _make_view()
+        view._title_inferred = False
+        view.on_title_inferred = MagicMock()
+
+        # Simulate startup noise followed by user input
+        _send_commit(view, "\x1b[?1;2c")  # DA response
+        _send_commit(view, "\x1bP>|VTE(6003)\x1b\\")  # XTVERSION
+        _send_commit(view, "fix the bug\r")
+
+        assert view._title_inferred is True
+        title = view.on_title_inferred.call_args[0][0]
+        assert "vte" not in title.lower()
+        assert "fix" in title.lower() or "bug" in title.lower()
+
+    def test_input_not_dropped_before_commit_ready(self):
+        """Regression: user typing before _commit_ready must not be dropped."""
+        view = _make_view()
+        view._commit_ready = False
+        view._title_inferred = False
+        view.on_title_inferred = MagicMock()
+
+        # User types before commit_ready
+        _send_commit(view, "hello world\r")
+
+        # Input should be processed — no gating
+        assert view._waiting_for_response is True
+        assert view._title_inferred is True
+        view.on_title_inferred.assert_called_once()
+
+    def test_escape_fragments_stripped_from_title_input(self):
+        """Regression: '[ping' must produce 'Ping', not 'Ing'."""
+        view = _make_view()
+        view._title_inferred = False
+        view.on_title_inferred = MagicMock()
+
+        # Simulate stray [ in buffer followed by user input
+        view._input_buf = ["["]
+        _send_commit(view, "ping\r")
+
+        assert view._title_inferred is True
+        title = view.on_title_inferred.call_args[0][0]
+        # Must contain "ping", not be truncated to "ing"
+        assert "ping" in title.lower()
 
 
 # ---------------------------------------------------------------------------

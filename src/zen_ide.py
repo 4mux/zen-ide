@@ -453,6 +453,7 @@ class ZenIDEWindow(
 
             self._dev_pad = DevPad(
                 open_file_callback=self._on_tree_file_selected,
+                open_ai_chat_callback=self._on_open_ai_chat,
                 get_workspace_folders_callback=lambda: (
                     self.tree_view.get_workspace_folders() if hasattr(self, "tree_view") else []
                 ),

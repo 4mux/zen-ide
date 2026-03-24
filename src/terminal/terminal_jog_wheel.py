@@ -41,6 +41,7 @@ class JogWheelScrollbarMixin:
         self._vscroll_hovering: bool = False
         self._jog_tick_id: int = 0
         self._vscroll_inhibit: bool = False
+        self._jog_dragging: bool = False
 
     # ── widget creation ──────────────────────────────────────────────────
 
@@ -76,6 +77,12 @@ class JogWheelScrollbarMixin:
         hover.connect("enter", lambda *_: self._on_vscrollbar_hover(True))
         hover.connect("leave", lambda *_: self._on_vscrollbar_hover(False))
         self._vscrollbar.add_controller(hover)
+
+        drag = Gtk.GestureDrag.new()
+        drag.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        drag.connect("drag-begin", lambda *_: setattr(self, "_jog_dragging", True))
+        drag.connect("drag-end", self._on_jog_drag_end)
+        self._vscrollbar.add_controller(drag)
 
         overlay.set_child(scrolled)
         overlay.add_overlay(self._vscrollbar)
@@ -162,7 +169,22 @@ class JogWheelScrollbarMixin:
             self._cancel_virtual_scrollbar_hide()
             self._vscrollbar.set_visible(True)
         else:
+            # Don't snap back while the user is still dragging the thumb —
+            # GTK4 fires a leave event when the pointer moves outside the
+            # scrollbar bounds during a drag gesture.
+            if self._jog_dragging:
+                return
             self._jog_snap_to_center()
+            self._vscroll_hide_id = GLib.timeout_add(
+                TERMINAL_SCROLLBAR_HIDE_DELAY_MS,
+                self._hide_virtual_scrollbar,
+            )
+
+    def _on_jog_drag_end(self, gesture, offset_x, offset_y) -> None:
+        """Handle drag release — snap to center and schedule hide."""
+        self._jog_dragging = False
+        self._jog_snap_to_center()
+        if not self._vscroll_hovering:
             self._vscroll_hide_id = GLib.timeout_add(
                 TERMINAL_SCROLLBAR_HIDE_DELAY_MS,
                 self._hide_virtual_scrollbar,

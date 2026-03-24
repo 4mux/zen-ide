@@ -1,6 +1,7 @@
 """AI Terminal Stack — manages multiple AI terminal sessions with a tab bar."""
 
 import os
+import re
 
 from gi.repository import GLib, Gtk
 
@@ -109,7 +110,11 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
                     if self._vertical_mode:
                         view._ai_header.title_label.set_label(title)
                         view._ai_header.title_label.set_visible(True)
-                    view._title_inferred = True
+                    # Only mark as inferred if the title is meaningful
+                    # (not a generic "Chat N" placeholder), so the inferrer
+                    # can still derive a real title from the first message.
+                    if not re.fullmatch(r"Chat \d+", title):
+                        view._title_inferred = True
                 # Restore per-tab provider so each tab keeps its CLI
                 provider = tab_info.get("provider")
                 if provider:
@@ -318,6 +323,7 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
         view.on_maximize = lambda name: self._on_view_maximize(name)
         view.on_provider_changed = lambda label, v=view: self._on_view_provider_changed(v, label)
         view.on_title_inferred = lambda title, v=view: self._on_title_inferred(self._view_idx(v), title)
+        view.on_user_prompt = lambda text, v=view: self._on_user_prompt(v, text)
         view.on_processing_changed = lambda p, v=view: self._on_processing_changed(self._view_idx(v), p)
 
         self._views.append(view)
@@ -446,6 +452,47 @@ class AITerminalStack(FocusBorderMixin, Gtk.Box):
             header = self._views[view_idx]._ai_header
             header.title_label.set_label(title)
             header.title_label.set_visible(True)
+        self._persist_tabs()
+
+    def _on_user_prompt(self, view, user_text: str) -> None:
+        """Log every user prompt to Dev Pad, keyed by session ID."""
+        session_id = getattr(view, "_session_id", None)
+        if not session_id:
+            return
+        # Derive the tab title for the Dev Pad row
+        idx = self._view_idx(view)
+        if self._vertical_mode and 0 <= idx < len(self._views):
+            title = view._ai_header.title_label.get_label() or "AI Chat"
+        elif not self._vertical_mode and 0 <= idx < len(self._tab_buttons):
+            title = self._tab_buttons[idx].get_title()
+        else:
+            title = "AI Chat"
+
+        from dev_pad.dev_pad import log_ai_activity
+
+        log_ai_activity(question=user_text, chat_id=session_id, title=title)
+
+    def focus_session(self, session_id: str) -> None:
+        """Focus the AI tab with the given session ID, or create one that resumes it."""
+        # First, look for an existing tab with this session ID
+        for i, view in enumerate(self._views):
+            if getattr(view, "_session_id", None) == session_id:
+                self._switch_to_tab(i)
+                return
+
+        # No existing tab — create a new one and resume the session
+        prev_provider = self._views[self._active_idx]._current_provider if self._views else None
+        prev_model = self._views[self._active_idx]._current_model if self._views else None
+        view = self._add_view()
+        if prev_provider:
+            view._current_provider = prev_provider
+        if prev_model:
+            view._current_model = prev_model
+        if self._views and len(self._views) > 1:
+            view.cwd = self._views[0].cwd
+        view._session_id = session_id
+        view._title_inferred = True  # it's a resumed session
+        view.spawn_shell(resume=True)
         self._persist_tabs()
 
     def _on_processing_changed(self, view_idx: int, processing: bool) -> None:
