@@ -152,13 +152,20 @@ generate_with_ai() {
     ai_name=$(basename "$ai_bin")
     echo "Using $ai_name to generate PR description ..." >&2
 
+    # Write prompt to temp file to avoid ARG_MAX limits
+    local prompt_file
+    prompt_file=$(mktemp)
+    echo "$AI_PROMPT" > "$prompt_file"
+
     if [ "$ai_name" = "claude" ]; then
-        ai_output=$(echo "$AI_PROMPT" | "$ai_bin" --print 2>/dev/null) || return 1
+        ai_output=$(cat "$prompt_file" | "$ai_bin" --print 2>/dev/null) || { rm -f "$prompt_file"; return 1; }
     elif [ "$ai_name" = "copilot" ]; then
-        ai_output=$("$ai_bin" -p "$AI_PROMPT" --allow-all-tools 2>/dev/null) || return 1
+        ai_output=$("$ai_bin" -p "$(cat "$prompt_file")" --silent --allow-all-tools 2>&1) || { rm -f "$prompt_file"; echo "$ai_output" >&2; return 1; }
     else
+        rm -f "$prompt_file"
         return 1
     fi
+    rm -f "$prompt_file"
 
     if [ -z "$ai_output" ]; then
         return 1
@@ -167,10 +174,24 @@ generate_with_ai() {
     echo "$ai_output"
 }
 
-PR_TITLE="$CURRENT_BRANCH"
+# Format title: "jira-123-hello-abc" → "[JIRA-123] Hello abc"
+format_title() {
+    local branch="$1"
+    if [[ "$branch" =~ ^([a-zA-Z]+-[0-9]+)-(.+)$ ]]; then
+        local ticket="${BASH_REMATCH[1]}"
+        local rest="${BASH_REMATCH[2]}"
+        ticket=$(echo "$ticket" | tr '[:lower:]' '[:upper:]')
+        rest=$(echo "$rest" | tr '-' ' ' | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+        echo "[$ticket] $rest"
+    else
+        echo "$branch"
+    fi
+}
+
+PR_TITLE=$(format_title "$CURRENT_BRANCH")
 
 PR_BODY=$(generate_with_ai) || {
-    echo "Error: no AI CLI found. Install 'claude' or 'copilot' CLI to generate PR descriptions."
+    echo "Error: AI description generation failed. Ensure 'claude' or 'copilot' CLI is installed and working."
     exit 1
 }
 
