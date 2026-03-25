@@ -2161,13 +2161,22 @@ class EditorTab:
                 except (json.JSONDecodeError, ValueError):
                     pass  # Keep original content if JSON is invalid
 
+            # Set language BEFORE content so GtkSourceView applies regex
+            # highlighting as the buffer text is set (avoids white flash).
+            from editor.langs.language_detect import detect_language
+
+            lang = detect_language(file_path)
+            if lang:
+                self.buffer.set_language(lang)
+
             self.buffer.set_text(content)
             self.original_content = content
             self.file_path = file_path
             self.modified = False
             self.is_new = False
 
-            # Set language
+            # Configure indent from file content (set_language is a no-op
+            # since the same language is already set above).
             self._set_language_from_file(file_path)
 
             # Update gutter diff renderer with file path
@@ -2178,6 +2187,15 @@ class EditorTab:
 
             # Move cursor to beginning
             self.buffer.place_cursor(self.buffer.get_start_iter())
+
+            # Force GtkSourceView to synchronously finish regex tokenisation
+            # for the entire buffer so the first paint never shows un-styled
+            # text.  Without this, the regex engine runs in idle handlers and
+            # the view may render before highlighting is complete.
+            self.buffer.ensure_highlight(
+                self.buffer.get_start_iter(),
+                self.buffer.get_end_iter(),
+            )
 
             return True
         except Exception as e:
@@ -2251,6 +2269,12 @@ class EditorTab:
 
             # Refresh gutter diff for external changes
             self._gutter_diff.refresh_head()
+
+            # Force synchronous highlighting so the reload doesn't flash
+            self.buffer.ensure_highlight(
+                self.buffer.get_start_iter(),
+                self.buffer.get_end_iter(),
+            )
 
             return True
         except Exception as e:

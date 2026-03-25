@@ -1,7 +1,7 @@
 # Syntax Highlighting System
 
 **Created_at:** 2026-02-20  
-**Updated_at:** 2026-03-08  
+**Updated_at:** 2026-03-25  
 **Status:** Active  
 **Goal:** Explain syntax highlighting via GtkSourceView language definitions and dynamic CSS generation  
 **Scope:** `src/editor/langs/language_detect.py`, `src/editor/langs/`, semantic highlighting  
@@ -135,6 +135,16 @@ GtkSourceView's regex tokenizer only highlights identifiers at **definition site
 2. On every buffer change, a debounced idle callback runs `_apply_semantic_tags()`.
 3. The function uses **Tree-sitter AST queries** (`tree_sitter_semantic.py`) to walk the syntax tree and classify tokens by their AST node type, then applies the appropriate tag at each match offset.
 4. When the theme changes, `update_semantic_colors()` updates the tag foreground colors.
+
+### First-Paint Behaviour
+
+The first semantic highlight pass after a file loads must handle two GTK timing constraints:
+
+1. **Full-buffer extraction on first mapped pass.** Token extraction is normally limited to the visible viewport (± margin) for performance. However, the first call after the view is mapped uses the **entire buffer** range. This ensures tokens beyond the initial viewport (e.g. method calls on line 80+ in a window showing 30 lines) are colored immediately rather than only appearing after a scroll.
+
+2. **Unmapped → mapped display invalidation.** `load_file()` runs before the GtkSourceView widget is mapped (visible in the window). Tags applied to an unmapped view do not trigger Pango layout invalidation — the cached layouts are built without tag foreground colors. When `_apply_semantic_tags` detects the view has transitioned from unmapped to mapped (`_sem_was_mapped` flag), it forces a full **remove + reapply** cycle so that `apply_tag()` triggers proper display invalidation for every tagged range.
+
+3. **Language set before content.** In `load_file()`, `set_language()` is called before `set_text()` so GtkSourceView's regex engine (Layer 1) can tokenize during buffer insertion. `ensure_highlight()` then forces synchronous completion.
 
 > **Supported languages:** Python, JavaScript, TypeScript, JSX, TSX.
 

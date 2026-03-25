@@ -171,7 +171,12 @@ def _apply_semantic_tags(buf, tab=None):
 
     # Determine visible line range.
     view = getattr(tab, "view", None)
-    if view and view.get_mapped():
+    is_mapped = bool(view and view.get_mapped())
+    was_mapped = getattr(tab, "_sem_was_mapped", False) if tab else True
+    first_mapped_pass = is_mapped and not was_mapped
+
+    if view and is_mapped and not first_mapped_pass:
+        # Use the actual viewport for subsequent (scroll/edit) calls.
         visible_rect = view.get_visible_rect()
         top_iter = view.get_iter_at_location(visible_rect.x, visible_rect.y)
         bot_iter = view.get_iter_at_location(visible_rect.x, visible_rect.y + visible_rect.height)
@@ -181,8 +186,10 @@ def _apply_semantic_tags(buf, tab=None):
         vis_start_line = max(0, top_line - margin)
         vis_end_line = bot_line + margin
     else:
+        # First pass (or unmapped): highlight the entire buffer so no
+        # tokens are missed on the initial render.
         vis_start_line = 0
-        vis_end_line = 80
+        vis_end_line = buf.get_line_count()
 
     vis_start_iter = buf.get_iter_at_line(vis_start_line)
     vis_end_iter = buf.get_iter_at_line(vis_end_line)
@@ -195,18 +202,18 @@ def _apply_semantic_tags(buf, tab=None):
     vis_start_char = vis_start_iter.get_offset()
     vis_end_char = vis_end_iter.get_offset()
 
-    # Only remove+reapply tags when the text has actually changed.
-    # When called from highlight-updated (same text, engine just
-    # re-highlighted), skip removal so we don't invalidate the display
-    # cache that our previous emit("changed") set up.
-    text_gen = buf.get_char_count()  # cheap proxy for "text changed"
+    # Remove existing tags when content changed or transitioning from
+    # unmapped to mapped (tags applied while unmapped are invisible).
+    text_gen = buf.get_char_count()
     text_changed = getattr(tab, "_sem_last_gen", -1) != text_gen
+    needs_reapply = text_changed or first_mapped_pass
     if tab:
         tab._sem_last_gen = text_gen
+        tab._sem_was_mapped = is_mapped
 
     buf_start = buf.get_start_iter()
     buf_end = buf.get_end_iter()
-    if text_changed:
+    if needs_reapply:
         for tag_name in _SEM_TAGS:
             buf.remove_tag_by_name(tag_name, buf_start, buf_end)
 
@@ -269,22 +276,6 @@ def _apply_semantic_tags(buf, tab=None):
     for tag in (class_tag, func_tag, param_tag, self_tag, prop_tag):
         if tag:
             tag.set_priority(max_prio)
-
-    # After the very first tag application, defer an emit("changed") to
-    # force GtkSourceView to rebuild its display cache with our tags.
-    # Must run AFTER the current highlight-updated cycle finishes.
-    if tab and not getattr(tab, "_sem_first_paint_done", False):
-        tab._sem_first_paint_done = True
-        if tokens:
-            def _deferred_emit():
-                handler_id = getattr(tab, "_semantic_handler_id", None)
-                if handler_id:
-                    buf.handler_block(handler_id)
-                buf.emit("changed")
-                if handler_id:
-                    buf.handler_unblock(handler_id)
-                return GLib.SOURCE_REMOVE
-            GLib.idle_add(_deferred_emit, priority=GLib.PRIORITY_HIGH)
 
 
 def _build_byte_to_char_map(text: str) -> dict:
