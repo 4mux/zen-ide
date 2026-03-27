@@ -235,6 +235,7 @@ class WindowLayoutMixin(LayoutCssMixin, LayoutDndMixin):
         self._diff_view = None
         self._system_monitor = None
         self._dev_pad = None
+        self._debug_panel = None
 
         # Split panel manager is initialized when the real EditorView is created
         # in _deferred_init_editor to keep pre-map startup work minimal.
@@ -308,6 +309,12 @@ class WindowLayoutMixin(LayoutCssMixin, LayoutDndMixin):
             None,
             lambda: self._show_end_child_panel(self.system_monitor),
             lambda: self._hide_end_child_panel(self.system_monitor),
+        )
+        self.split_panels.register(
+            "debug",
+            None,
+            lambda: self._show_end_child_panel(self.debug_panel),
+            lambda: self._hide_end_child_panel(self.debug_panel),
         )
 
     def _lock_paned_position(self, paned, position):

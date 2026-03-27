@@ -131,6 +131,24 @@ class StatusIndicatorsMixin:
         """Show or hide the INSPECT mode indicator."""
         self._inspect_label.set_visible(active)
 
+    def set_debug_state(self, state: str):
+        """Show or hide the DEBUG mode indicator in the status bar.
+
+        Args:
+            state: One of "idle", "initializing", "running", "stopped", "terminated",
+                   or empty string to hide.
+        """
+        if not state or state in ("idle", "terminated"):
+            self._debug_label.set_visible(False)
+        else:
+            labels = {
+                "initializing": "DEBUG: Starting",
+                "running": "DEBUG: Running",
+                "stopped": "DEBUG: Paused",
+            }
+            self._debug_label.set_label(labels.get(state, f"DEBUG: {state}"))
+            self._debug_label.set_visible(True)
+
     def set_position(self, line: int, col: int, total_lines: int):
         """Update cursor position and percentage (throttled to ~30fps)."""
         self._line = line

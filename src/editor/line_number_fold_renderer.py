@@ -7,15 +7,12 @@ chevrons in a single wider gutter column.  Used by FoldManager.
 
 from gi.repository import GLib, Graphene, Gsk, Gtk, GtkSource, Pango
 
-from fonts import get_font_settings
-from icons import ICON_FONT_FAMILY
 from shared.utils import hex_to_gdk_rgba
 from themes import get_theme
 
 _CHEVRON_SIZE = 7
-_CHEVRON_PAD = 6  # symmetric padding on each side of the chevron zone
-_CHEVRON_COL_WIDTH = _CHEVRON_PAD + 14 + _CHEVRON_PAD  # pad + icon + pad
-_NUM_PAD = 10  # equal padding on left and right of the number zone
+_CHEVRON_COL_WIDTH = 20  # width of the chevron area
+_NUM_PAD = 10  # symmetric padding on left and right of the number zone
 _FIXED_DIGIT_COUNT = 4  # fixed digit count so the gutter never resizes
 
 
@@ -27,8 +24,10 @@ _FIXED_DIGIT_COUNT = 4  # fixed digit count so the gutter never resizes
 class LineNumberFoldRenderer(GtkSource.GutterRenderer):
     """Replaces the built-in line number renderer.
 
-    Draws the line number left-aligned and a fold chevron (if any)
-    right-aligned, all within a single gutter column.
+    Layout: | NUM_PAD | digits | NUM_PAD | chevron_col |
+
+    Line numbers are centered within the number zone (NUM_PAD + digits + NUM_PAD).
+    Chevrons are centered within the chevron zone.
     """
 
     __gtype_name__ = "LineNumberFoldRenderer"
@@ -100,7 +99,7 @@ class LineNumberFoldRenderer(GtkSource.GutterRenderer):
         num_zone = _NUM_PAD + num_col_width + _NUM_PAD
         line_y, line_h = lines.get_line_yrange(line, Gtk.TextWindowType.WIDGET)
 
-        # --- line number (centered in number zone) ---
+        # --- line number (centered within number zone) ---
         is_current = lines.is_cursor(line)
         num_fg = hex_to_gdk_rgba(theme.fg_color if is_current else theme.line_number_fg, 1.0)
 
@@ -109,8 +108,7 @@ class LineNumberFoldRenderer(GtkSource.GutterRenderer):
 
         self._layout.set_text(str(line + 1), -1)
         _ink, logical = self._layout.get_pixel_extents()
-        total_w = num_zone + _CHEVRON_COL_WIDTH
-        x = (total_w - logical.width) / 2
+        x = (num_zone - logical.width) / 2
         y = line_y + (line_h - logical.height) / 2
 
         snapshot.save()
@@ -118,7 +116,7 @@ class LineNumberFoldRenderer(GtkSource.GutterRenderer):
         snapshot.append_layout(self._layout, num_fg)
         snapshot.restore()
 
-        # --- fold chevron (centered in chevron zone with symmetric padding) ---
+        # --- fold chevron (centered within chevron zone) ---
         if line not in fm._fold_regions:
             return
         collapsed = line in fm._collapsed
@@ -128,16 +126,8 @@ class LineNumberFoldRenderer(GtkSource.GutterRenderer):
 
         chevron_fg = hex_to_gdk_rgba(theme.line_number_fg, 0.7 * opacity)
         sz = _CHEVRON_SIZE
-        alloc_w = self.get_allocation().width
-        chevron_area = alloc_w - num_zone
-        cx = num_zone + chevron_area / 2
+        cx = num_zone + _CHEVRON_COL_WIDTH / 2
         cy = line_y + line_h / 2
-
-        # DEBUG: draw red rect for chevron zone, blue rect for full gutter
-        dbg_red = hex_to_gdk_rgba("#ff0000", 0.3)
-        dbg_blue = hex_to_gdk_rgba("#0000ff", 0.15)
-        snapshot.append_color(dbg_blue, Graphene.Rect().init(0, line_y, alloc_w, line_h))
-        snapshot.append_color(dbg_red, Graphene.Rect().init(num_zone, line_y, chevron_area, line_h))
 
         builder = Gsk.PathBuilder.new()
         if collapsed:

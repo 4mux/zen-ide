@@ -151,6 +151,13 @@ class StatusBar(StatusIndicatorsMixin, Gtk.Box):
         self._inspect_label.set_visible(False)
         left_box.append(self._inspect_label)
 
+        # Debug mode indicator (shown during active debug session)
+        self._debug_label = Gtk.Label(label="DEBUG")
+        self._debug_label.add_css_class("status-debug-mode")
+        self._debug_label.set_margin_start(8)
+        self._debug_label.set_visible(False)
+        left_box.append(self._debug_label)
+
         # Git branch section
         self._git_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         self._git_box.add_css_class("status-git")
@@ -355,6 +362,15 @@ class StatusBar(StatusIndicatorsMixin, Gtk.Box):
             .status-inspect-mode {{
                 color: {theme.main_bg};
                 background-color: {theme.accent_color};
+                padding: 2px 8px;
+                font-family: {icon_fallback};
+                font-size: {font_size - 1}pt;
+                font-weight: 700;
+            }}
+
+            .status-debug-mode {{
+                color: {theme.main_bg};
+                background-color: {theme.warning_color};
                 padding: 2px 8px;
                 font-family: {icon_fallback};
                 font-size: {font_size - 1}pt;

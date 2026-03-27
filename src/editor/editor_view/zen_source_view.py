@@ -22,6 +22,7 @@ class ZenSourceView(ZenSourceViewCursorMixin, ZenSourceViewGuttersMixin, GtkSour
         self._buf_changed_id = None
         self._buf_cursor_id = None  # Track cursor-position signal for wide cursor
         self._gutter_diff_renderer = None  # Set by EditorTab
+        self._breakpoint_renderer = None  # Set by EditorTab (BreakpointRenderer)
         self._color_preview_renderer = None  # Set by EditorTab
         self._fold_manager = None  # Set by EditorTab (FoldManager)
         self._fold_unsafe_lines = set()  # Lines where get_iter_location is unsafe (fold)
@@ -220,6 +221,9 @@ class ZenSourceView(ZenSourceViewCursorMixin, ZenSourceViewGuttersMixin, GtkSour
 
         if self._gutter_diff_renderer and self._gutter_diff_renderer._diff_lines:
             self._gutter_diff_renderer.draw(snapshot, vis_range)
+
+        if self._breakpoint_renderer and self._breakpoint_renderer.has_content:
+            self._breakpoint_renderer.draw(snapshot, vis_range, fold_unsafe)
 
         if self._color_preview_renderer and self._color_preview_renderer._color_positions:
             self._color_preview_renderer.draw(snapshot, vis_range, fold_unsafe)

@@ -365,6 +365,20 @@ class EditorTabInputMixin:
                 self._cmd_click_callback(self.buffer, self.view, self.file_path, it)
                 return True
 
+        # Single click in gutter area: toggle breakpoint
+        if n_press == 1 and self.file_path:
+            text_x, _ = self.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET, 0, 0)
+            if x < text_x:
+                bx, by = self.view.window_to_buffer_coords(Gtk.TextWindowType.WIDGET, int(x), int(y))
+                _, it = self.view.get_iter_at_location(bx, by)
+                line = it.get_line() + 1  # 1-based
+                from debugger.breakpoint_manager import get_breakpoint_manager
+
+                get_breakpoint_manager().toggle(self.file_path, line)
+                self.view.queue_draw()
+                gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+                return True
+
         # Single click on diagnostic underline: show popover
         if n_press == 1 and hasattr(self, "_diag_error_tag"):
             bx, by = self.view.window_to_buffer_coords(Gtk.TextWindowType.WIDGET, int(x), int(y))

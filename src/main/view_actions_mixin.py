@@ -190,3 +190,164 @@ class ViewActionsMixin:
 
         # Use idle_add to ensure window size is available after any pending operations
         GLib.idle_add(self._apply_default_layout)
+
+    # --- Debug actions ---
+
+    def _on_debug_start(self, action, param):
+        """Start or continue debugging (F5)."""
+        from debugger.debug_session import DebugSession, SessionState
+
+        session = getattr(self, "_debug_session", None)
+        if session and session.state == SessionState.STOPPED:
+            session.continue_()
+            return
+        if session and session.state == SessionState.RUNNING:
+            return
+        # Clean up terminated/stale session so we can start fresh
+        if session and session.state in (SessionState.TERMINATED, SessionState.IDLE):
+            self._debug_session = None
+
+        # Create a new debug session
+        from debugger.debug_config import create_default_config, load_launch_configs
+
+        file_path = self.editor_view.get_current_file_path()
+        if not file_path:
+            return
+
+        workspace_folders = self.tree_view.get_workspace_folders()
+        workspace = workspace_folders[0] if workspace_folders else os.path.dirname(file_path)
+
+        # Try launch.json first, then zero-config
+        configs = load_launch_configs(workspace)
+        if configs:
+            config = configs[0]
+        else:
+            config = create_default_config(file_path, workspace_folders)
+            if not config:
+                self.split_panels.show("debug")
+                self.debug_panel.append_output("Cannot debug: only Python (.py) files are supported\n", "error")
+                return
+
+        # Show debug panel
+        self.split_panels.show("debug")
+
+        # Create session
+        panel = self.debug_panel
+        session = DebugSession(
+            config,
+            on_state_changed=self._on_debug_state_changed,
+            on_output=panel.append_output,
+            on_stopped=self._on_debug_session_stopped,
+        )
+        self._debug_session = session
+        panel.set_session(session)
+
+        # Log to Dev Pad
+        from dev_pad.activity_store import log_debug_activity
+
+        log_debug_activity(
+            f"Debug session started — {os.path.basename(file_path)} (python)",
+            file_path=file_path,
+        )
+
+        try:
+            session.start(file_path, workspace)
+        except Exception:
+            import traceback
+
+            panel.append_output(f"Debug start failed:\n{traceback.format_exc()}", "stderr")
+
+    def _on_debug_state_changed(self, session):
+        """Handle debug session state changes — update status bar and panel."""
+        from debugger.debug_session import SessionState
+
+        self.debug_panel.on_session_state_changed(session)
+        self.status_bar.set_debug_state(session.state.value)
+        # Clear execution-line highlight when resuming or ending
+        if session.state in (SessionState.RUNNING, SessionState.TERMINATED):
+            self._clear_debug_decorations()
+
+    def _on_debug_stop(self, action, param):
+        """Stop debugging (Shift+F5)."""
+        session = getattr(self, "_debug_session", None)
+        if session:
+            session.stop()
+            self._clear_debug_decorations()
+            self.status_bar.set_debug_state("")
+
+            from dev_pad.activity_store import log_debug_activity
+
+            log_debug_activity("Debug session ended")
+
+    def _on_debug_step_over(self, action, param):
+        """Step over (F10)."""
+        session = getattr(self, "_debug_session", None)
+        if session:
+            session.step_over()
+
+    def _on_debug_step_into(self, action, param):
+        """Step into (F11)."""
+        session = getattr(self, "_debug_session", None)
+        if session:
+            session.step_into()
+
+    def _on_debug_step_out(self, action, param):
+        """Step out (Shift+F11)."""
+        session = getattr(self, "_debug_session", None)
+        if session:
+            session.step_out()
+
+    def _on_debug_toggle_breakpoint(self, action, param):
+        """Toggle breakpoint at current line (F9)."""
+        from debugger.breakpoint_manager import get_breakpoint_manager
+
+        file_path = self.editor_view.get_current_file_path()
+        if not file_path:
+            return
+        tab = self.editor_view._get_current_tab()
+        if not tab:
+            return
+        buf = tab.view.get_buffer()
+        insert = buf.get_iter_at_mark(buf.get_insert())
+        line = insert.get_line() + 1  # 1-based
+
+        mgr = get_breakpoint_manager()
+        mgr.toggle(file_path, line)
+        tab.view.queue_draw()
+
+        # Sync with active debug session
+        session = getattr(self, "_debug_session", None)
+        if session:
+            session.sync_file_breakpoints(file_path)
+
+    def _on_debug_toggle_panel(self, action, param):
+        """Toggle debug panel (Ctrl+Shift+B)."""
+        self.split_panels.toggle("debug")
+
+    def _on_debug_session_stopped(self, session, thread_id, reason, file_path, line):
+        """Called when execution stops (breakpoint, step). Updates editor decorations."""
+        self.debug_panel.on_session_stopped(session, thread_id, reason, file_path, line)
+
+        if reason == "breakpoint" and file_path:
+            from dev_pad.activity_store import log_debug_activity
+
+            log_debug_activity(
+                f"Breakpoint hit — {os.path.basename(file_path)}:{line}",
+                file_path=file_path,
+            )
+
+        # Update breakpoint renderer with current execution line
+        if file_path:
+            tab = self.editor_view._get_current_tab()
+            if tab and hasattr(tab.view, "_breakpoint_renderer"):
+                renderer = tab.view._breakpoint_renderer
+                if renderer:
+                    renderer.set_current_line(line)
+
+    def _clear_debug_decorations(self):
+        """Clear debug decorations from all open tabs."""
+        for tab in self.editor_view.tabs.values():
+            if hasattr(tab, "_breakpoint_renderer"):
+                renderer = tab._breakpoint_renderer
+                if renderer and renderer._current_line is not None:
+                    renderer.set_current_line(None)

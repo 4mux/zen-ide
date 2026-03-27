@@ -178,6 +178,18 @@ def log_custom_activity(
     )
 
 
+def log_debug_activity(title: str, description: str = "", file_path: str = ""):
+    """Log a debug session activity."""
+    storage = get_dev_pad_storage()
+    storage.update_or_add_activity(
+        activity_type="debug",
+        title=title,
+        description=description or title,
+        link_type="file" if file_path else None,
+        link_target=file_path or None,
+    )
+
+
 def log_github_pr_activity(
     author: str,
     title: str,

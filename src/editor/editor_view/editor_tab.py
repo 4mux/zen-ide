@@ -43,6 +43,13 @@ class EditorTab(EditorTabInputMixin, EditorTabHoverMixin, EditorTabThemeMixin, E
         self._color_preview = ColorPreviewRenderer(self.view)
         self.view._color_preview_renderer = self._color_preview
 
+        # Breakpoint gutter renderer (red dots, execution pointer)
+        from debugger.breakpoint_manager import get_breakpoint_manager
+        from debugger.breakpoint_renderer import BreakpointRenderer
+
+        self._breakpoint_renderer = BreakpointRenderer(self.view, get_breakpoint_manager())
+        self.view._breakpoint_renderer = self._breakpoint_renderer
+
         # Diagnostic wavy underline tags
         self._setup_diagnostic_underline_tags()
 
@@ -175,6 +182,9 @@ class EditorTab(EditorTabInputMixin, EditorTabHoverMixin, EditorTabThemeMixin, E
 
             # Update gutter diff renderer with file path
             self._gutter_diff.set_file_path(file_path)
+
+            # Update breakpoint renderer with file path
+            self._breakpoint_renderer.set_file_path(file_path)
 
             # Apply cached diagnostics (from workspace scan) or run fresh
             self._apply_or_run_diagnostics()

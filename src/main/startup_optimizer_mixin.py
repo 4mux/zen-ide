@@ -302,6 +302,13 @@ class StartupOptimizerMixin:
         menu_btn.connect("clicked", lambda b: menu_popover.popup())
         header.pack_end(menu_btn)
 
+        # Debug start button (▶) in header bar
+        debug_btn = Gtk.Button.new_from_icon_name("media-playback-start-symbolic")
+        debug_btn.set_tooltip_text("Start Debugging (F5)")
+        debug_btn.add_css_class("flat")
+        debug_btn.connect("clicked", lambda b: self.get_application().activate_action("debug_start"))
+        header.pack_end(debug_btn)
+
         # Enable drag-and-drop + app icon (deferred from _on_window_mapped)
         self._setup_file_drop_target(self._main_box)
         self.get_application()._setup_app_icon()

@@ -32,7 +32,11 @@ def _poll_queue() -> bool:
         try:
             func(*args, **kwargs)
         except Exception:
-            pass
+            import logging
+
+            logging.getLogger("zen.main_thread").exception(
+                "Exception in main_thread_call callback %s", getattr(func, "__name__", func)
+            )
     return True  # keep the timer alive
 
 

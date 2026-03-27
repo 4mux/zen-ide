@@ -64,6 +64,8 @@ class WindowPanelsMixin:
         # If no editor tabs remain, collapse editor so terminals auto-expand
         if not self.editor_view.tabs and not self._has_welcome_screen() and not self._has_dev_pad_tab():
             self._collapse_editor()
+
+    def _ensure_editor_min_height(self):
         """Ensure editor area gets at least 60% of window height.
 
         When bottom panels (AI chat + terminal) dominate the vertical space,

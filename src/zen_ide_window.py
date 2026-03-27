@@ -294,6 +294,15 @@ class ZenIDEWindow(
             self._dev_pad.set_visible(False)
         return self._dev_pad
 
+    @property
+    def debug_panel(self):
+        if self._debug_panel is None:
+            from debugger.debug_panel import DebugPanel
+
+            self._debug_panel = DebugPanel(self)
+            self._debug_panel.set_visible(False)
+        return self._debug_panel
+
     def _create_actions(self):
         """Create application actions."""
         app = self.get_application()
@@ -354,6 +363,14 @@ class ZenIDEWindow(
                 "toggle_inspect": self._on_toggle_inspect,
                 "about": self._on_about,
                 "quit": self._on_quit,
+                # Debug
+                "debug_start": self._on_debug_start,
+                "debug_stop": self._on_debug_stop,
+                "debug_step_over": self._on_debug_step_over,
+                "debug_step_into": self._on_debug_step_into,
+                "debug_step_out": self._on_debug_step_out,
+                "debug_toggle_breakpoint": self._on_debug_toggle_breakpoint,
+                "debug_toggle_panel": self._on_debug_toggle_panel,
             }
         )
 
@@ -401,6 +418,14 @@ class ZenIDEWindow(
                 "toggle_dark_light": [f"{mod_shift}l", f"{mod}L"],
                 "shortcuts": [f"{mod_shift}slash", f"{mod_shift}question"],
                 "toggle_inspect": [f"{mod_shift}i", f"{mod}I"],
+                # Debug
+                "debug_start": ["F5"],
+                "debug_stop": ["<Shift>F5"],
+                "debug_step_over": ["F10"],
+                "debug_step_into": ["F11"],
+                "debug_step_out": ["<Shift>F11"],
+                "debug_toggle_breakpoint": ["F9"],
+                "debug_toggle_panel": [f"{mod_shift}b", f"{mod}B"],
             }
         )
 
@@ -413,6 +438,35 @@ class ZenIDEWindow(
 
     def _on_global_key_pressed(self, controller, keyval, keycode, state):
         """Handle global key shortcuts (capture phase)."""
+        # Debug function keys by hardware keycode — works even when
+        # laptop firmware remaps F-row to media keys without Fn held.
+        is_shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        no_mods = not (state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.META_MASK))
+
+        if no_mods and not is_shift:
+            # keycode 71 = F5, 76 = F10, 95 = F11, 75 = F9
+            fkey_actions = {71: "debug_start", 76: "debug_step_over", 95: "debug_step_into", 75: "debug_toggle_breakpoint"}
+            action_name = fkey_actions.get(keycode)
+            if action_name:
+                app = self.get_application()
+                if app:
+                    app.activate_action(action_name)
+                    return True
+        elif is_shift and no_mods:
+            # Shift+F5 = stop, Shift+F11 = step out
+            fkey_shift = {71: "debug_stop", 95: "debug_step_out"}
+            action_name = fkey_shift.get(keycode)
+            if action_name:
+                app = self.get_application()
+                if app:
+                    app.activate_action(action_name)
+                    return True
+
+        # Also handle by keyval (for keyboards where F-keys work normally)
+        if keyval == Gdk.KEY_F5 and no_mods and not is_shift:
+            self.get_application().activate_action("debug_start")
+            return True
+
         # Escape closes the find bar regardless of focus
         if (
             keyval == Gdk.KEY_Escape
