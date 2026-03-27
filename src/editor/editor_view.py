@@ -7,7 +7,7 @@ import os
 import time
 from typing import Callable
 
-from gi.repository import Gdk, GLib, Graphene, Gtk, GtkSource, Pango
+from gi.repository import GLib, Graphene, Gtk, GtkSource, Pango
 
 from constants import (
     BRACKET_SCOPE_LANGS,
@@ -25,6 +25,7 @@ from shared.focus_manager import get_component_focus_manager
 from shared.settings import get_setting
 from shared.ui import ZenButton
 from shared.ui.zen_entry import ZenEntry, ZenSearchEntry
+from shared.utils import hex_to_gdk_rgba, tuple_to_gdk_rgba
 from themes import get_theme, subscribe_theme_change
 
 from .color_preview_renderer import ColorPreviewRenderer
@@ -36,16 +37,6 @@ SKETCH_EXTENSION = ".zen_sketch"
 
 # Directory for generated GtkSourceView style scheme files
 _SCHEME_DIR = os.path.join(os.environ.get("TMPDIR") or os.environ.get("TEMP") or "/tmp", "zen-ide-schemes")
-
-
-def _parse_rgba(hex_color: str, alpha: float = 1.0):
-    """Parse a hex color string into a Gdk.RGBA with optional alpha."""
-    from gi.repository import Gdk
-
-    rgba = Gdk.RGBA()
-    rgba.parse(hex_color)
-    rgba.alpha = alpha
-    return rgba
 
 
 def _cursor_scheme_fg(editor_bg: str) -> str:
@@ -233,6 +224,14 @@ def _iter_at_line_offset(buf, line, offset):
     return result
 
 
+def _iter_at_offset(buf, offset):
+    """Get a fresh TextIter at a character offset, handling GTK4 tuple returns."""
+    result = buf.get_iter_at_offset(min(max(0, offset), buf.get_char_count()))
+    if isinstance(result, (tuple, list)):
+        return result[1] if len(result) >= 2 else buf.get_start_iter()
+    return result
+
+
 def _parse_hex_color(hex_color):
     """Parse hex color to (r, g, b) floats 0–1."""
     h = hex_color.lstrip("#")
@@ -248,12 +247,13 @@ class ZenSourceView(GtkSource.View):
         super().__init__(**kwargs)
         self._show_guides = True
         self._guide_rgba = (1.0, 1.0, 1.0, 0.08)
-        self._guide_color = Gdk.RGBA()
-        self._guide_color.red, self._guide_color.green, self._guide_color.blue, self._guide_color.alpha = self._guide_rgba
+        self._guide_color = tuple_to_gdk_rgba(self._guide_rgba)
         self._buf_changed_id = None
         self._buf_cursor_id = None  # Track cursor-position signal for wide cursor
         self._gutter_diff_renderer = None  # Set by EditorTab
         self._color_preview_renderer = None  # Set by EditorTab
+        self._fold_manager = None  # Set by EditorTab (FoldManager)
+        self._fold_unsafe_lines = set()  # Lines where get_iter_location is unsafe (fold)
         self._ghost_text_renderer = None  # Set by GhostTextRenderer
         self._suppress_focus_effects = False  # Set by Autocomplete to prevent flicker
         self._restoring_focus_flags = False  # Re-entrancy guard for do_state_flags_changed
@@ -487,6 +487,17 @@ class ZenSourceView(GtkSource.View):
 
     def _do_custom_snapshot(self, snapshot):
         """Custom overlay drawing (indent guides, diff, diagnostics, ghost text, cursor)."""
+        # Build set of lines unsafe for get_iter_location (hidden inside folds).
+        # Fold header lines are now safe — the invisible tag only covers
+        # complete lines (start_line+1 … end_line), never the header itself.
+        fm = getattr(self, "_fold_manager", None)
+        fold_unsafe = set()
+        if fm and fm._collapsed:
+            for sl, el in fm._collapsed.items():
+                for ln in range(sl + 1, el + 1):
+                    fold_unsafe.add(ln)
+        self._fold_unsafe_lines = fold_unsafe
+
         if self._show_guides:
             self._draw_indent_guides_snapshot(snapshot)
 
@@ -502,7 +513,7 @@ class ZenSourceView(GtkSource.View):
             self._gutter_diff_renderer.draw(snapshot, vis_range)
 
         if self._color_preview_renderer and self._color_preview_renderer._color_positions:
-            self._color_preview_renderer.draw(snapshot, vis_range)
+            self._color_preview_renderer.draw(snapshot, vis_range, fold_unsafe)
 
         buf = self.get_buffer()
         tt = buf.get_tag_table()
@@ -512,13 +523,18 @@ class ZenSourceView(GtkSource.View):
 
         # Ghost text overlay (drawn before block cursor so cursor sits on top)
         if self._ghost_text_renderer:
-            self._ghost_text_renderer.draw(snapshot)
+            # Skip ghost text if cursor is on a fold-affected line
+            cursor_line = buf.get_iter_at_mark(buf.get_insert()).get_line()
+            if cursor_line not in fold_unsafe:
+                self._ghost_text_renderer.draw(snapshot)
 
         # Block cursor (drawn last so it sits on top of everything)
         if self._wide_cursor and self._bc_focused and self._bc_visible:
-            from shared.block_cursor_draw import draw_block_cursor
+            cursor_line = buf.get_iter_at_mark(buf.get_insert()).get_line()
+            if cursor_line not in fold_unsafe:
+                from shared.block_cursor_draw import draw_block_cursor
 
-            draw_block_cursor(self, snapshot)
+                draw_block_cursor(self, snapshot)
 
     # -- Custom wavy underlines for diagnostics --
 
@@ -565,19 +581,37 @@ class ZenSourceView(GtkSource.View):
                     it = buf.get_iter_at_offset(vis_end_offset)
                 range_end = it.copy()
 
+                # Use pre-built set of fold-unsafe lines — includes fold
+                # headers (invisible tag starts at their end) and hidden lines.
+                hidden = self._fold_unsafe_lines
+
                 # Draw line by line within the tagged range
                 ls = range_start.copy()
                 range_end_offset = range_end.get_offset()
                 while ls.get_offset() < range_end_offset:
                     cur_line = ls.get_line()
+
+                    # Skip lines hidden by fold — Pango layout is invalid
+                    if cur_line in hidden:
+                        next_it = _iter_at_line(buf, cur_line + 1)
+                        if next_it.get_line() == cur_line:
+                            break
+                        ls = next_it
+                        continue
+
                     le = range_end.copy()
                     if le.get_line() > cur_line:
                         le = _iter_at_line(buf, cur_line)
                         if not le.ends_line():
                             le.forward_to_line_end()
 
-                    sr = self.get_iter_location(ls)
-                    er = self.get_iter_location(le)
+                    # Re-create iters from character offsets so internal
+                    # byte indices are guaranteed fresh.
+                    ls_fresh = _iter_at_offset(buf, ls.get_offset())
+                    le_fresh = _iter_at_offset(buf, le.get_offset())
+
+                    sr = self.get_iter_location(ls_fresh)
+                    er = self.get_iter_location(le_fresh)
                     sx, sy = btwc(Gtk.TextWindowType.WIDGET, sr.x, sr.y)
                     ex, _ = btwc(Gtk.TextWindowType.WIDGET, er.x, 0)
                     wave_y = sy + sr.height + 1
@@ -671,7 +705,15 @@ class ZenSourceView(GtkSource.View):
             return
 
         btwc = self.buffer_to_window_coords
-        pad_it = _iter_at_line(buf, start_ln)
+        fold_unsafe = getattr(self, "_fold_unsafe_lines", set())
+
+        # Find a safe line for padding_x measurement
+        pad_ln = start_ln
+        while pad_ln in fold_unsafe and pad_ln <= end_ln:
+            pad_ln += 1
+        if pad_ln > end_ln:
+            return
+        pad_it = _iter_at_line(buf, pad_ln)
         padding_x = self.get_iter_location(pad_it).x
 
         # Selected line range — skip guides on selected lines
@@ -690,7 +732,7 @@ class ZenSourceView(GtkSource.View):
             if ln >= n_levels:
                 break
             lvl = levels[ln]
-            if lvl <= 0 or sel_start_ln <= ln <= sel_end_ln:
+            if lvl <= 0 or sel_start_ln <= ln <= sel_end_ln or ln in fold_unsafe:
                 line_lvl[i] = 0
                 continue
             it = _iter_at_line(buf, ln)
@@ -783,6 +825,12 @@ class EditorTab:
 
         setup_buffer_cache(self)
 
+        # Code folding (tree-sitter fold detection + invisible tags)
+        from .fold_manager import FoldManager
+
+        self._fold_manager = FoldManager(self.view, self._ts_cache)
+        self.view._fold_manager = self._fold_manager
+
         # Autocomplete (Ctrl+Space) — lazy init on first use
         self._autocomplete = None
 
@@ -828,7 +876,8 @@ class EditorTab:
 
         # Batch property changes to avoid per-setter layout invalidation
         view.freeze_notify()
-        view.set_show_line_numbers(True)
+        # Line numbers are drawn by FoldManager's LineNumberFoldRenderer
+        view.set_show_line_numbers(False)
         view.set_highlight_current_line(True)
         view.set_auto_indent(True)
         view.set_indent_on_tab(True)
@@ -1071,6 +1120,12 @@ class EditorTab:
         ):
             self._ensure_autocomplete().show(force=True)
             return True
+
+        # Ctrl+Shift+[ — toggle fold at cursor
+        if is_ctrl and is_shift and keyval == Gdk.KEY_bracketleft and not is_alt:
+            fm = getattr(self, "_fold_manager", None)
+            if fm and fm.toggle_fold_at_cursor():
+                return True
 
         # Alt+\ triggers inline AI completion manually
         if is_alt and keyval == Gdk.KEY_backslash and not is_cmd and not is_ctrl:
@@ -1377,6 +1432,9 @@ class EditorTab:
             over, it = self.view.get_iter_at_location(bx, by)
             if over and (it.has_tag(self._diag_error_tag) or it.has_tag(self._diag_warning_tag)):
                 line_1 = it.get_line() + 1
+                # Skip if line is in a fold-affected region (Pango crash)
+                if it.get_line() in self.view._fold_unsafe_lines:
+                    return False
                 # Move cursor to clicked position so click still places the caret
                 self.buffer.place_cursor(it)
                 self.view.grab_focus()
@@ -1460,11 +1518,11 @@ class EditorTab:
 
         self._diag_error_tag = self.buffer.create_tag(
             "diag_error_underline",
-            background_rgba=_parse_rgba(err_color, 0.12),
+            background_rgba=hex_to_gdk_rgba(err_color, 0.12),
         )
         self._diag_warning_tag = self.buffer.create_tag(
             "diag_warning_underline",
-            background_rgba=_parse_rgba(warn_color, 0.12),
+            background_rgba=hex_to_gdk_rgba(warn_color, 0.12),
         )
         # Store wave colors on the view for custom wavy line drawing
         self.view._diag_error_wave_rgba = _parse_hex_color(err_color) + (1.0,)
@@ -1475,9 +1533,9 @@ class EditorTab:
         err_hex = theme.term_red
         warn_hex = theme.term_yellow
         if hasattr(self, "_diag_error_tag"):
-            self._diag_error_tag.props.background_rgba = _parse_rgba(err_hex, 0.12)
+            self._diag_error_tag.props.background_rgba = hex_to_gdk_rgba(err_hex, 0.12)
         if hasattr(self, "_diag_warning_tag"):
-            self._diag_warning_tag.props.background_rgba = _parse_rgba(warn_hex, 0.12)
+            self._diag_warning_tag.props.background_rgba = hex_to_gdk_rgba(warn_hex, 0.12)
         # Sync wave colors on the view
         self.view._diag_error_wave_rgba = _parse_hex_color(err_hex) + (1.0,)
         self.view._diag_warning_wave_rgba = _parse_hex_color(warn_hex) + (1.0,)

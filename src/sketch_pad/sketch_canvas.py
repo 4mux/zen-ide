@@ -10,6 +10,7 @@ import platform
 from gi.repository import Gdk, GLib, Graphene, Gsk, Gtk, Pango
 
 from fonts.font_manager import get_font_settings
+from shared.utils import tuple_to_gdk_rgba
 from sketch_pad.sketch_model import (
     _CLIPBOARD_XLAT,
     ACTOR_HEIGHT,
@@ -420,7 +421,7 @@ class SketchCanvas(Gtk.Widget):
             fg = _hex(theme.panel_bg)
         bounds = Graphene.Rect().init(0, 0, width, height)
         snapshot.push_clip(bounds)
-        snapshot.append_color(_mk_rgba(bg), bounds)
+        snapshot.append_color(tuple_to_gdk_rgba(bg), bounds)
 
         snapshot.save()
         snapshot.scale(self._zoom, self._zoom)
@@ -476,12 +477,12 @@ class SketchCanvas(Gtk.Widget):
             y = min(ms[1], me[1]) * self._cell_h
             w = (abs(me[0] - ms[0]) + 1) * self._cell_w
             h = (abs(me[1] - ms[1]) + 1) * self._cell_h
-            snapshot.append_color(_mk_rgba(accent, 0.15), Graphene.Rect().init(x, y, w, h))
+            snapshot.append_color(tuple_to_gdk_rgba(accent, 0.15), Graphene.Rect().init(x, y, w, h))
             builder = Gsk.PathBuilder.new()
             builder.add_rect(Graphene.Rect().init(x, y, w, h))
             stroke = Gsk.Stroke.new(1)
             stroke.set_dash([4, 3])
-            snapshot.append_stroke(builder.to_path(), stroke, _mk_rgba(accent, 0.6))
+            snapshot.append_stroke(builder.to_path(), stroke, tuple_to_gdk_rgba(accent, 0.6))
 
         # Text cursor
         if self._text_editing:
@@ -501,7 +502,7 @@ class SketchCanvas(Gtk.Widget):
                         builder = Gsk.PathBuilder.new()
                         builder.add_circle(Graphene.Point().init(cx, cy), 8)
                         stroke = Gsk.Stroke.new(1)
-                        snapshot.append_stroke(builder.to_path(), stroke, _mk_rgba(accent, 0.6))
+                        snapshot.append_stroke(builder.to_path(), stroke, tuple_to_gdk_rgba(accent, 0.6))
 
         snapshot.restore()
         snapshot.pop()
@@ -521,7 +522,7 @@ class SketchCanvas(Gtk.Widget):
             builder.move_to(sc * self._cell_w, y)
             builder.line_to((sc + vc) * self._cell_w, y)
         stroke = Gsk.Stroke.new(0.5)
-        snapshot.append_stroke(builder.to_path(), stroke, _mk_rgba(fg_color, 0.06))
+        snapshot.append_stroke(builder.to_path(), stroke, tuple_to_gdk_rgba(fg_color, 0.06))
 
     def _strip_editing_shape_text(self, grid: dict[tuple[int, int], str]):
         """Remove text chars from grid for the shape being edited."""
@@ -562,7 +563,7 @@ class SketchCanvas(Gtk.Widget):
         ctx = self.get_pango_context()
         if not ctx:
             return
-        rgba = _mk_rgba(color)
+        rgba = tuple_to_gdk_rgba(color)
         layout = Pango.Layout.new(ctx)
         layout.set_font_description(fd)
         for (col, row), ch in grid.items():
@@ -595,7 +596,7 @@ class SketchCanvas(Gtk.Widget):
             y = top * self._cell_h - expand_y
             w = (right - left + 1) * self._cell_w + 2 * expand_x
             h = (bottom - top + 1) * self._cell_h + 2 * expand_y
-            snapshot.append_color(_mk_rgba(_hex(fc)), Graphene.Rect().init(x, y, w, h))
+            snapshot.append_color(tuple_to_gdk_rgba(_hex(fc)), Graphene.Rect().init(x, y, w, h))
 
     def _draw_colored_chars(self, snapshot, grid: dict, fd):
         """Re-draw chars in custom color for shapes that have one."""
@@ -632,7 +633,7 @@ class SketchCanvas(Gtk.Widget):
         for pos, hc in color_map.items():
             by_color.setdefault(hc, []).append(pos)
         for hc, positions in by_color.items():
-            rgba = _mk_rgba(_hex(hc))
+            rgba = tuple_to_gdk_rgba(_hex(hc))
             for col, row in positions:
                 ch = grid.get((col, row))
                 if not ch or ch == " ":
@@ -648,11 +649,11 @@ class SketchCanvas(Gtk.Widget):
         ctx = self.get_pango_context()
         if not ctx:
             return
-        fg_rgba = _mk_rgba(fg)
+        fg_rgba = tuple_to_gdk_rgba(fg)
         for shape in self._board.z_sorted():
             if not getattr(shape, "font_size", None) or not shape.text:
                 continue
-            text_rgba = _mk_rgba(_hex(shape.text_color)) if shape.text_color else fg_rgba
+            text_rgba = tuple_to_gdk_rgba(_hex(shape.text_color)) if shape.text_color else fg_rgba
             fd = Pango.FontDescription.new()
             fd.set_family(self._font_family)
             fd.set_size(int(shape.font_size * Pango.SCALE))
@@ -753,7 +754,7 @@ class SketchCanvas(Gtk.Widget):
                 builder.add_rect(Graphene.Rect().init(vx - pad, vy - pad, vw + 2 * pad, vh + 2 * pad))
                 stroke = Gsk.Stroke.new(2.0)
                 stroke.set_dash([5, 3])
-                snapshot.append_stroke(builder.to_path(), stroke, _mk_rgba(accent, 0.7))
+                snapshot.append_stroke(builder.to_path(), stroke, tuple_to_gdk_rgba(accent, 0.7))
                 if len(self._selected_ids) == 1:
                     self._draw_resize_handles(snapshot, shape, accent)
 
@@ -769,7 +770,7 @@ class SketchCanvas(Gtk.Widget):
         for c, r in path[1:]:
             builder.line_to(c * self._cell_w + self._cell_w / 2, r * self._cell_h + self._cell_h / 2)
         stroke = Gsk.Stroke.new(3)
-        snapshot.append_stroke(builder.to_path(), stroke, _mk_rgba(accent, 0.55))
+        snapshot.append_stroke(builder.to_path(), stroke, tuple_to_gdk_rgba(accent, 0.55))
         # Endpoint handles — connected endpoints get a diamond, unconnected get a circle
         for end_name, (c, r), conn in [
             ("start", (shape.start_col, shape.start_row), shape.start_connection),
@@ -786,13 +787,13 @@ class SketchCanvas(Gtk.Widget):
                 builder.line_to(cx, cy + ds)
                 builder.line_to(cx - ds, cy)
                 builder.close()
-                snapshot.append_fill(builder.to_path(), Gsk.FillRule.WINDING, _mk_rgba(accent, 0.9))
+                snapshot.append_fill(builder.to_path(), Gsk.FillRule.WINDING, tuple_to_gdk_rgba(accent, 0.9))
                 if conn.pinned:
                     # Inner dot to indicate pinned state
                     if self._dark_mode:
-                        dot_color = _mk_rgba((0, 0, 0), 0.8)
+                        dot_color = tuple_to_gdk_rgba((0, 0, 0), 0.8)
                     else:
-                        dot_color = _mk_rgba((1, 1, 1), 0.8)
+                        dot_color = tuple_to_gdk_rgba((1, 1, 1), 0.8)
                     builder = Gsk.PathBuilder.new()
                     builder.add_circle(Graphene.Point().init(cx, cy), 2)
                     snapshot.append_fill(builder.to_path(), Gsk.FillRule.WINDING, dot_color)
@@ -800,7 +801,7 @@ class SketchCanvas(Gtk.Widget):
                 # Circle for unconnected endpoints
                 builder = Gsk.PathBuilder.new()
                 builder.add_circle(Graphene.Point().init(cx, cy), 5)
-                snapshot.append_fill(builder.to_path(), Gsk.FillRule.WINDING, _mk_rgba(accent, 0.8))
+                snapshot.append_fill(builder.to_path(), Gsk.FillRule.WINDING, tuple_to_gdk_rgba(accent, 0.8))
         # Highlight connected shapes at connection points
         self._draw_connection_hints(snapshot, shape, accent)
 
@@ -840,7 +841,7 @@ class SketchCanvas(Gtk.Widget):
         builder.add_rect(Graphene.Rect().init(vx, vy, vw, vh))
         stroke = Gsk.Stroke.new(2.0)
         stroke.set_dash([5, 3])
-        snapshot.append_stroke(builder.to_path(), stroke, _mk_rgba(accent, 0.7))
+        snapshot.append_stroke(builder.to_path(), stroke, tuple_to_gdk_rgba(accent, 0.7))
 
     def _draw_connection_hints(self, snapshot, arrow: ArrowShape, accent):
         """Draw a subtle highlight on each shape connected to this arrow."""
@@ -856,15 +857,15 @@ class SketchCanvas(Gtk.Widget):
             # Outer glow ring on the shape edge
             builder = Gsk.PathBuilder.new()
             builder.add_circle(Graphene.Point().init(cx, cy), 20)
-            snapshot.append_fill(builder.to_path(), Gsk.FillRule.WINDING, _mk_rgba(accent, 0.35))
+            snapshot.append_fill(builder.to_path(), Gsk.FillRule.WINDING, tuple_to_gdk_rgba(accent, 0.35))
             # Mid glow ring
             builder = Gsk.PathBuilder.new()
             builder.add_circle(Graphene.Point().init(cx, cy), 12)
-            snapshot.append_fill(builder.to_path(), Gsk.FillRule.WINDING, _mk_rgba(accent, 0.45))
+            snapshot.append_fill(builder.to_path(), Gsk.FillRule.WINDING, tuple_to_gdk_rgba(accent, 0.45))
             # Inner bright dot
             builder = Gsk.PathBuilder.new()
             builder.add_circle(Graphene.Point().init(cx, cy), 5)
-            snapshot.append_fill(builder.to_path(), Gsk.FillRule.WINDING, _mk_rgba(accent, 0.85))
+            snapshot.append_fill(builder.to_path(), Gsk.FillRule.WINDING, tuple_to_gdk_rgba(accent, 0.85))
             # Highlight on the connected shape border
             sx = target.left * self._cell_w - 4
             sy = target.top * self._cell_h - 4
@@ -873,7 +874,7 @@ class SketchCanvas(Gtk.Widget):
             builder = Gsk.PathBuilder.new()
             builder.add_rect(Graphene.Rect().init(sx, sy, sw, sh))
             stroke = Gsk.Stroke.new(2.5)
-            snapshot.append_stroke(builder.to_path(), stroke, _mk_rgba(accent, 0.45))
+            snapshot.append_stroke(builder.to_path(), stroke, tuple_to_gdk_rgba(accent, 0.45))
 
     def _compute_alignment_guides(self):
         """Compute alignment guide lines between dragged shapes and other shapes."""
@@ -942,7 +943,7 @@ class SketchCanvas(Gtk.Widget):
                 builder.line_to(max_col * self._cell_w, y)
             stroke = Gsk.Stroke.new(0.8)
             stroke.set_dash([6, 4])
-            snapshot.append_stroke(builder.to_path(), stroke, _mk_rgba(accent, 0.5))
+            snapshot.append_stroke(builder.to_path(), stroke, tuple_to_gdk_rgba(accent, 0.5))
 
     def _draw_resize_handles(self, snapshot, shape, accent):
         hs = 4
@@ -957,7 +958,7 @@ class SketchCanvas(Gtk.Widget):
             (vx + vw / 2, vy + vh),
             (vx + vw, vy + vh),
         ]
-        rgba = _mk_rgba(accent, 0.8)
+        rgba = tuple_to_gdk_rgba(accent, 0.8)
         for hx, hy in pts:
             snapshot.append_color(rgba, Graphene.Rect().init(hx - hs, hy - hs, hs * 2, hs * 2))
 
@@ -985,7 +986,7 @@ class SketchCanvas(Gtk.Widget):
             y = it * self._cell_h
             w = (ir - il + 1) * self._cell_w
             h = (ib - it + 1) * self._cell_h
-            snapshot.append_color(_mk_rgba(bg), Graphene.Rect().init(x, y, w, h))
+            snapshot.append_color(tuple_to_gdk_rgba(bg), Graphene.Rect().init(x, y, w, h))
         elif isinstance(shape, ArrowShape):
             anchor = shape.get_text_anchor()
             num_lines = len(self._text_buffer)
@@ -995,13 +996,13 @@ class SketchCanvas(Gtk.Widget):
                 ay = (anchor[1] - num_lines + 1) * self._cell_h
                 aw = (max_w + 2) * self._cell_w
                 ah = num_lines * self._cell_h
-                snapshot.append_color(_mk_rgba(bg), Graphene.Rect().init(ax, ay, aw, ah))
+                snapshot.append_color(tuple_to_gdk_rgba(bg), Graphene.Rect().init(ax, ay, aw, ah))
 
         # --- render text from the buffer at cursor-aligned positions ---
         ctx = self.get_pango_context()
         if not ctx:
             return
-        fg_rgba = _mk_rgba(fg)
+        fg_rgba = tuple_to_gdk_rgba(fg)
         fd = Pango.FontDescription.new()
         fd.set_family(self._grid_font_family)
         fd.set_size(int(self._font_size * Pango.SCALE))
@@ -1022,11 +1023,11 @@ class SketchCanvas(Gtk.Widget):
         fs = getattr(shape, "font_size", None) if shape else None
         if fs:
             x, y, h = self._custom_font_cursor_pos(shape)
-            snapshot.append_color(_mk_rgba(accent, 0.8), Graphene.Rect().init(x, y, 2, h))
+            snapshot.append_color(tuple_to_gdk_rgba(accent, 0.8), Graphene.Rect().init(x, y, 2, h))
         else:
             x = self._text_cursor_col * self._cell_w
             y = self._text_cursor_row * self._cell_h
-            snapshot.append_color(_mk_rgba(accent, 0.8), Graphene.Rect().init(x, y, 2, self._cell_h))
+            snapshot.append_color(tuple_to_gdk_rgba(accent, 0.8), Graphene.Rect().init(x, y, 2, self._cell_h))
 
     def _text_pos_to_grid(self, line: int, char: int) -> tuple[int, int]:
         """Convert text buffer (line, char) to grid (col, row)."""
@@ -1073,7 +1074,7 @@ class SketchCanvas(Gtk.Widget):
         accent = _hex(theme.accent_color)
         shape = self._board.get_shape(self._text_shape_id) if self._text_shape_id else None
         fs = getattr(shape, "font_size", None) if shape else None
-        accent_rgba = _mk_rgba(accent, 0.45)
+        accent_rgba = tuple_to_gdk_rgba(accent, 0.45)
 
         # Collect rectangles and selected text fragments for redrawing
         rects = []
@@ -1101,7 +1102,7 @@ class SketchCanvas(Gtk.Widget):
         ctx = self.get_pango_context()
         if not ctx:
             return
-        bg_rgba = _mk_rgba(bg_color)
+        bg_rgba = tuple_to_gdk_rgba(bg_color)
         fd = Pango.FontDescription.new()
         layout = Pango.Layout.new(ctx)
         for entry in rects:
@@ -2504,7 +2505,7 @@ class SketchCanvas(Gtk.Widget):
         else:
             bg = _hex(get_theme().fg_color)
             fg = _hex(get_theme().panel_bg)
-        snap.append_color(_mk_rgba(bg), Graphene.Rect().init(0, 0, img_w, img_h))
+        snap.append_color(tuple_to_gdk_rgba(bg), Graphene.Rect().init(0, 0, img_w, img_h))
 
         snap.save()
         snap.translate(Graphene.Point().init(padding - min_col * self._cell_w, padding - min_row * self._cell_h))
@@ -2593,10 +2594,3 @@ def _hex(color: str) -> tuple[float, float, float]:
     if len(h) == 6:
         return (int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0)
     return (0.8, 0.85, 0.95)
-
-
-def _mk_rgba(rgb: tuple, a: float = 1.0) -> Gdk.RGBA:
-    """Create Gdk.RGBA from (r, g, b) float tuple and alpha."""
-    c = Gdk.RGBA()
-    c.red, c.green, c.blue, c.alpha = rgb[0], rgb[1], rgb[2], a
-    return c

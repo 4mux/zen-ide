@@ -3,21 +3,14 @@ CustomTreePanel renderer mixin — drawing logic for the tree.
 Uses GtkSnapshot API for hardware-accelerated rendering.
 """
 
-from gi.repository import Gdk, Graphene, Gsk, Pango
+from gi.repository import Graphene, Gsk, Pango
 
-from shared.utils import hex_to_rgba
+from shared.utils import hex_to_rgba, tuple_to_gdk_rgba
 from treeview.tree_icons import ICON_COLORS, get_git_status_colors
 
 
 class TreePanelRendererMixin:
     """Mixin providing drawing/rendering methods for CustomTreePanel."""
-
-    @staticmethod
-    def _to_rgba(color_tuple):
-        """Convert (r, g, b, a) tuple to Gdk.RGBA."""
-        rgba = Gdk.RGBA()
-        rgba.red, rgba.green, rgba.blue, rgba.alpha = color_tuple
-        return rgba
 
     def _get_icon_for_item(self, item):
         """Get icon character and color for an item."""
@@ -48,7 +41,7 @@ class TreePanelRendererMixin:
         # Clear background
         rect = Graphene.Rect()
         rect.init(0, 0, width, height)
-        snapshot.append_color(self._to_rgba(self.bg_color), rect)
+        snapshot.append_color(tuple_to_gdk_rgba(self.bg_color), rect)
 
         if not self.items:
             return
@@ -100,13 +93,13 @@ class TreePanelRendererMixin:
             if self.drawing_area.has_focus() and not self._cursor_blinker.cursor_visible:
                 if item != self.selected_item:
                     rect.init(0, y, width, self.row_height)
-                    snapshot.append_color(self._to_rgba(self.selected_bg), rect)
+                    snapshot.append_color(tuple_to_gdk_rgba(self.selected_bg), rect)
             else:
                 rect.init(0, y, width, self.row_height)
-                snapshot.append_color(self._to_rgba(self.selected_bg), rect)
+                snapshot.append_color(tuple_to_gdk_rgba(self.selected_bg), rect)
         elif item == self.hover_item:
             rect.init(0, y, width, self.row_height)
-            snapshot.append_color(self._to_rgba(self.hover_bg), rect)
+            snapshot.append_color(tuple_to_gdk_rgba(self.hover_bg), rect)
 
         x = self.LEFT_PADDING
 
@@ -129,7 +122,7 @@ class TreePanelRendererMixin:
         # Draw chevron for directories
         if item.is_dir:
             chevron = self.chevron_expanded if item.expanded else self.chevron_collapsed
-            color = self._to_rgba(self.ignored_color if item.git_status == "I" else self.chevron_color)
+            color = tuple_to_gdk_rgba(self.ignored_color if item.git_status == "I" else self.chevron_color)
             layout.set_text(chevron, -1)
             snapshot.save()
             point.init(x, icon_y)
@@ -140,7 +133,7 @@ class TreePanelRendererMixin:
 
         # Draw icon
         icon_char, icon_color = self._get_icon_for_item(item)
-        color = self._to_rgba(self.ignored_color if item.git_status == "I" else hex_to_rgba(icon_color))
+        color = tuple_to_gdk_rgba(self.ignored_color if item.git_status == "I" else hex_to_rgba(icon_color))
         layout.set_text(icon_char.strip(), -1)
         snapshot.save()
         point.init(x, icon_y)
@@ -167,7 +160,7 @@ class TreePanelRendererMixin:
         snapshot.save()
         point.init(x, text_y)
         snapshot.translate(point)
-        snapshot.append_layout(layout, self._to_rgba(text_color))
+        snapshot.append_layout(layout, tuple_to_gdk_rgba(text_color))
         snapshot.restore()
 
         # Draw git status hint
@@ -190,14 +183,14 @@ class TreePanelRendererMixin:
             rounded = Gsk.RoundedRect()
             rounded.init_from_rect(pill_rect, 3)
             snapshot.push_rounded_clip(rounded)
-            snapshot.append_color(self._to_rgba(bg_color), pill_rect)
+            snapshot.append_color(tuple_to_gdk_rgba(bg_color), pill_rect)
             snapshot.pop()
 
             # Hint text
             snapshot.save()
             point.init(hint_x, text_y)
             snapshot.translate(point)
-            snapshot.append_layout(layout, self._to_rgba(hint_color))
+            snapshot.append_layout(layout, tuple_to_gdk_rgba(hint_color))
             snapshot.restore()
 
     def _draw_indent_guides(self, snapshot, item, start_x, y):
@@ -248,7 +241,7 @@ class TreePanelRendererMixin:
 
         path = builder.to_path()
         stroke = Gsk.Stroke.new(1.0)
-        snapshot.append_stroke(path, stroke, self._to_rgba(self.guide_color))
+        snapshot.append_stroke(path, stroke, tuple_to_gdk_rgba(self.guide_color))
 
         return x
 
@@ -273,14 +266,14 @@ class TreePanelRendererMixin:
             # Semi-transparent fill
             fill_color = (accent[0], accent[1], accent[2], 0.2)
             rect.init(0, y, width, self.row_height)
-            snapshot.append_color(self._to_rgba(fill_color), rect)
+            snapshot.append_color(tuple_to_gdk_rgba(fill_color), rect)
 
             # Border
             border_rect = Graphene.Rect()
             border_rect.init(0.5, y + 0.5, width - 1, self.row_height - 1)
             rounded = Gsk.RoundedRect()
             rounded.init_from_rect(border_rect, 0)
-            accent_rgba = self._to_rgba(accent)
+            accent_rgba = tuple_to_gdk_rgba(accent)
             snapshot.append_border(
                 rounded,
                 [1, 1, 1, 1],
@@ -293,7 +286,7 @@ class TreePanelRendererMixin:
             else:
                 line_y = (index + 1) * self.row_height
             indent = self.LEFT_PADDING + self._drop_target_item.depth * self.INDENT_WIDTH
-            accent_rgba = self._to_rgba(accent)
+            accent_rgba = tuple_to_gdk_rgba(accent)
 
             # Horizontal line
             builder = Gsk.PathBuilder.new()

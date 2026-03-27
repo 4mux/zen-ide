@@ -14,11 +14,12 @@ import difflib
 import os
 import threading
 
-from gi.repository import Gdk, GLib, Graphene, Gtk, GtkSource
+from gi.repository import GLib, Graphene, Gtk, GtkSource
 
 from constants import GUTTER_DIFF_WIDTH
 from shared.git_manager import get_git_manager
 from shared.main_thread import main_thread_call
+from shared.utils import hex_to_gdk_rgba
 from themes import get_theme
 
 _NO_REPO = object()  # Sentinel: file is outside any git repo
@@ -140,7 +141,7 @@ class GutterDiffRenderer:
         """Re-fetch HEAD content (call after file save)."""
         self._fetch_head_content()
 
-    def draw(self, snapshot, vis_range=None):
+    def draw(self, snapshot, vis_range=None, fold_unsafe=None):
         """Draw diff indicators using GtkSnapshot (called from ZenSourceView.do_snapshot).
 
         vis_range: optional (start_ln, end_ln) tuple to avoid redundant get_visible_rect.
@@ -157,9 +158,9 @@ class GutterDiffRenderer:
         width = GUTTER_DIFF_WIDTH
 
         # Cache parsed colors as Gdk.RGBA
-        color_add = self._make_rgba(theme.git_added, 0.9)
-        color_change = self._make_rgba(theme.git_modified, 0.9)
-        color_del = self._make_rgba(theme.git_deleted, 0.9)
+        color_add = hex_to_gdk_rgba(theme.git_added, 0.9)
+        color_change = hex_to_gdk_rgba(theme.git_modified, 0.9)
+        color_del = hex_to_gdk_rgba(theme.git_deleted, 0.9)
 
         # Position indicators just to the left of the text area
         text_x, _ = view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET, 0, 0)
@@ -177,9 +178,15 @@ class GutterDiffRenderer:
 
         rect = Graphene.Rect()
 
+        # Get fold-unsafe lines from the view if not passed explicitly
+        if fold_unsafe is None:
+            fold_unsafe = getattr(self._view, "_fold_unsafe_lines", set())
+
         for line_num in range(start_ln, end_ln + 1):
             dtype = self._diff_lines.get(line_num)
             if not dtype:
+                continue
+            if line_num in fold_unsafe:
                 continue
 
             if dtype == "add":
@@ -208,17 +215,3 @@ class GutterDiffRenderer:
             else:
                 rect.init(indicator_x, wy, width, lh)
             snapshot.append_color(color, rect)
-
-    @staticmethod
-    def _make_rgba(hex_color: str, alpha: float = 1.0):
-        """Convert hex color to Gdk.RGBA."""
-        hex_color = hex_color.lstrip("#")
-        color = Gdk.RGBA()
-        if len(hex_color) == 6:
-            color.red = int(hex_color[0:2], 16) / 255.0
-            color.green = int(hex_color[2:4], 16) / 255.0
-            color.blue = int(hex_color[4:6], 16) / 255.0
-        else:
-            color.red = color.green = color.blue = 0.5
-        color.alpha = alpha
-        return color

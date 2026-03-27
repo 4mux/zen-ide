@@ -258,6 +258,11 @@ class GhostTextRenderer:
             self._cursor_offset = char_count
 
         cursor_iter = self._buffer.get_iter_at_offset(self._cursor_offset)
+        # Skip if cursor is on a fold-affected line (Pango crash risk)
+        fold_unsafe = getattr(self._view, "_fold_unsafe_lines", set())
+        if cursor_iter.get_line() in fold_unsafe:
+            self._remove_spacing()
+            return
         cursor_loc = self._view.get_iter_location(cursor_iter)
         line_height = cursor_loc.height
 

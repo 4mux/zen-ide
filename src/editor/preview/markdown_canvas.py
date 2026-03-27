@@ -20,6 +20,7 @@ import threading
 from gi.repository import Gdk, GdkPixbuf, GLib, Graphene, Gtk, Pango
 
 from editor.preview.content_block import ContentBlock, InlineSpan
+from shared.utils import hex_to_gdk_rgba
 
 # Emoji detection for adding visual spacing in rendered text
 _EMOJI_RE = re.compile(
@@ -97,13 +98,13 @@ class MarkdownCanvas(Gtk.DrawingArea):
         self._border_hex = "#3e3e3e"
         self._selection_bg_hex = "#264f78"
 
-        self._fg_rgba = self._hex_to_rgba(self._fg_hex)
-        self._bg_rgba = self._hex_to_rgba(self._bg_hex)
-        self._code_bg_rgba = self._hex_to_rgba(self._code_bg_hex)
-        self._accent_rgba = self._hex_to_rgba(self._accent_hex)
-        self._dim_rgba = self._hex_to_rgba(self._dim_hex)
-        self._border_rgba = self._hex_to_rgba(self._border_hex)
-        self._selection_rgba = self._hex_to_rgba(self._selection_bg_hex)
+        self._fg_rgba = hex_to_gdk_rgba(self._fg_hex)
+        self._bg_rgba = hex_to_gdk_rgba(self._bg_hex)
+        self._code_bg_rgba = hex_to_gdk_rgba(self._code_bg_hex)
+        self._accent_rgba = hex_to_gdk_rgba(self._accent_hex)
+        self._dim_rgba = hex_to_gdk_rgba(self._dim_hex)
+        self._border_rgba = hex_to_gdk_rgba(self._border_hex)
+        self._selection_rgba = hex_to_gdk_rgba(self._selection_bg_hex)
         self._selection_rgba.alpha = 0.4
 
         # Selection state: (region_idx, byte_idx) tuples
@@ -187,14 +188,14 @@ class MarkdownCanvas(Gtk.DrawingArea):
         if selection_bg:
             self._selection_bg_hex = selection_bg
 
-        self._fg_rgba = self._hex_to_rgba(fg)
-        self._bg_rgba = self._hex_to_rgba(bg)
-        self._code_bg_rgba = self._hex_to_rgba(code_bg)
-        self._accent_rgba = self._hex_to_rgba(accent)
-        self._dim_rgba = self._hex_to_rgba(dim)
-        self._border_rgba = self._hex_to_rgba(border)
+        self._fg_rgba = hex_to_gdk_rgba(fg)
+        self._bg_rgba = hex_to_gdk_rgba(bg)
+        self._code_bg_rgba = hex_to_gdk_rgba(code_bg)
+        self._accent_rgba = hex_to_gdk_rgba(accent)
+        self._dim_rgba = hex_to_gdk_rgba(dim)
+        self._border_rgba = hex_to_gdk_rgba(border)
         if selection_bg:
-            self._selection_rgba = self._hex_to_rgba(selection_bg)
+            self._selection_rgba = hex_to_gdk_rgba(selection_bg)
             self._selection_rgba.alpha = 0.4
 
         self._schedule_redraw()
@@ -512,12 +513,12 @@ class MarkdownCanvas(Gtk.DrawingArea):
             badge_h = badge_logical.height + badge_pad_y * 2
             badge_y = block._y_offset + 1
 
-            badge_rgba = self._hex_to_rgba(block.badge_color)
+            badge_rgba = hex_to_gdk_rgba(block.badge_color)
             badge_rect = Graphene.Rect()
             badge_rect.init(text_x, badge_y, badge_w, badge_h)
             snapshot.append_color(badge_rgba, badge_rect)
 
-            white_rgba = self._hex_to_rgba("#ffffff")
+            white_rgba = hex_to_gdk_rgba("#ffffff")
             point = Graphene.Point()
             point.init(text_x + badge_pad_x, badge_y + badge_pad_y)
             snapshot.save()
@@ -935,7 +936,7 @@ class MarkdownCanvas(Gtk.DrawingArea):
             bar_y = block._y_offset + header_h
             bar_h = block._height - header_h
             if bar_h > 0:
-                border_rgba = self._hex_to_rgba(block.border_color)
+                border_rgba = hex_to_gdk_rgba(block.border_color)
                 border_rect = Graphene.Rect()
                 border_rect.init(self.PAD_LEFT, bar_y, 3, bar_h)
                 snapshot.append_color(border_rgba, border_rect)
@@ -959,13 +960,13 @@ class MarkdownCanvas(Gtk.DrawingArea):
             badge_y = block._y_offset + 1
 
             # Badge background
-            badge_rgba = self._hex_to_rgba(block.badge_color)
+            badge_rgba = hex_to_gdk_rgba(block.badge_color)
             badge_rect = Graphene.Rect()
             badge_rect.init(text_x, badge_y, badge_w, badge_h)
             snapshot.append_color(badge_rgba, badge_rect)
 
             # Badge text (white)
-            white_rgba = self._hex_to_rgba("#ffffff")
+            white_rgba = hex_to_gdk_rgba("#ffffff")
             point = Graphene.Point()
             point.init(text_x + badge_pad_x, badge_y + badge_pad_y)
             snapshot.save()
@@ -2117,9 +2118,3 @@ class MarkdownCanvas(Gtk.DrawingArea):
     # ------------------------------------------------------------------ #
     #  Color helpers                                                       #
     # ------------------------------------------------------------------ #
-
-    @staticmethod
-    def _hex_to_rgba(hex_color: str) -> Gdk.RGBA:
-        rgba = Gdk.RGBA()
-        rgba.parse(hex_color)
-        return rgba

@@ -298,6 +298,37 @@ def hex_to_rgba(hex_color: str, alpha: float = 1.0) -> tuple:
         return (0.15, 0.15, 0.15, alpha)
 
 
+def hex_to_gdk_rgba(hex_color: str, alpha: float = 1.0):
+    """Convert hex color string to a ``Gdk.RGBA`` with optional *alpha*.
+
+    Falls back to mid-gray on malformed input.
+    """
+    from gi.repository import Gdk
+
+    r, g, b, a = hex_to_rgba(hex_color, alpha)
+    c = Gdk.RGBA()
+    c.red, c.green, c.blue, c.alpha = r, g, b, a
+    return c
+
+
+def tuple_to_gdk_rgba(color_tuple, alpha: float | None = None):
+    """Convert an ``(r, g, b[, a])`` float tuple to a ``Gdk.RGBA``.
+
+    If *alpha* is given it overrides any alpha in the tuple.
+    """
+    from gi.repository import Gdk
+
+    c = Gdk.RGBA()
+    c.red, c.green, c.blue = color_tuple[0], color_tuple[1], color_tuple[2]
+    if alpha is not None:
+        c.alpha = alpha
+    elif len(color_tuple) >= 4:
+        c.alpha = color_tuple[3]
+    else:
+        c.alpha = 1.0
+    return c
+
+
 def hex_to_rgba_css(hex_color: str, alpha: float = 1.0) -> str:
     """Convert hex color to CSS ``rgba(r, g, b, a)`` string.
 

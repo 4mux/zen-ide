@@ -66,10 +66,11 @@ class ColorPreviewRenderer:
         self._color_positions = positions
         view.queue_draw()
 
-    def draw(self, snapshot, vis_range=None):
+    def draw(self, snapshot, vis_range=None, fold_unsafe=None):
         """Draw color swatches using GtkSnapshot (called from ZenSourceView.do_snapshot).
 
         vis_range: optional (start_ln, end_ln) tuple to avoid redundant get_visible_rect.
+        fold_unsafe: optional set of line numbers where get_iter_location is unsafe.
         """
         if not self._color_positions:
             return
@@ -95,6 +96,8 @@ class ColorPreviewRenderer:
 
         for ln, col, hex_str in self._color_positions:
             if ln < vis_start_ln or ln > vis_end_ln:
+                continue
+            if fold_unsafe and ln in fold_unsafe:
                 continue
 
             r, g, b, a = self._parse_color(hex_str)

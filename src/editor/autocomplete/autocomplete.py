@@ -453,6 +453,10 @@ class Autocomplete:
         if not force and len(self._filtered) == 1 and self._filtered[0].name == partial:
             return
 
+        # Skip if cursor is on a fold-affected line (Pango crash risk)
+        fold_unsafe = getattr(self._view, "_fold_unsafe_lines", set())
+        if cursor_iter.get_line() in fold_unsafe:
+            return
         # Position popup below the cursor line (not covering it)
         loc = self._view.get_iter_location(cursor_iter)
         wx, wy = self._view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET, loc.x, loc.y)

@@ -82,7 +82,7 @@ BRACKET_SCOPE_LANGS = frozenset(
 )
 
 # Editor Left Padding (spacing between line numbers and code)
-EDITOR_LEFT_PADDING = 20  # pixels of left margin between gutter and code text
+EDITOR_LEFT_PADDING = 10  # pixels of left margin between gutter and code text
 
 # Editor Gutter Diff Indicators (vertical bars next to line numbers)
 GUTTER_DIFF_WIDTH = 3  # pixels width of diff indicator bar in editor gutter
