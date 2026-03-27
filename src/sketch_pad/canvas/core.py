@@ -185,6 +185,14 @@ class SketchCanvas(
 
         self._double_click_pending = False
 
+    # ─────────────────────── GObject vfunc overrides ───────────────────────
+    # PyGObject only registers vfunc overrides found in the class's own
+    # __dict__, not those inherited from non-GObject mixins.  Explicitly
+    # delegate so GTK sees the override during class creation.
+
+    def do_snapshot(self, snapshot):
+        RenderingMixin.do_snapshot(self, snapshot)
+
     # ─────────────────────── Properties ───────────────────────
 
     @property

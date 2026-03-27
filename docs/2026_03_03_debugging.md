@@ -1,49 +1,51 @@
 # Debugging — Design Document
 
-**Created_at:** 2026-03-03  
-**Updated_at:** 2026-03-08  
-**Status:** Planned  
-**Goal:** Implement Debug Adapter Protocol (DAP) support for multi-language debugging  
-**Scope:** `src/debug/`, Python/JavaScript/Go/Rust debugger adapters  
+**Created_at:** 2026-03-03
+**Updated_at:** 2026-03-27
+**Status:** Ready for implementation
+**Goal:** Implement Debug Adapter Protocol (DAP) support for multi-language debugging
+**Scope:** `src/debugger/`, language-independent DAP integration (C, C++, Python, Rust, JavaScript)
 
 ---
 
 ## Overview
 
-Zen IDE debugging integration via the **Debug Adapter Protocol (DAP)** — the same open standard used by Neovim (nvim-dap), Emacs, and other modern editors. DAP decouples the IDE UI from language-specific debuggers, so one implementation unlocks debugging for Python, JavaScript, Go, Rust, and any language with a DAP adapter.
+Zen IDE debugging integration via the **Debug Adapter Protocol (DAP)** — the same open standard used by Neovim (nvim-dap), Emacs, and other modern editors. DAP decouples the IDE UI from language-specific debuggers, so one implementation unlocks debugging for C, C++, Python, Rust, JavaScript, and any language with a DAP adapter.
+
+> **Note:** `src/debug/` is already used by the widget inspector (GTK DevTools-like inspect mode). Debugger code lives in `src/debugger/`.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                       Zen IDE                           │
-│                                                         │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
-│  │ Breakpoint   │  │  Debug Panel │  │ Editor Gutter │  │
-│  │ Manager      │  │  (variables, │  │ (breakpoint   │  │
+┌──────────────────────────────────────────────────────────┐
+│                        Zen IDE                           │
+│                                                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │  Breakpoint  │  │  Debug Panel │  │ Editor Gutter │  │
+│  │  Manager     │  │  (variables, │  │ (breakpoint   │  │
 │  │              │  │   call stack, │  │  markers,     │  │
 │  │              │  │   watches,    │  │  current line │  │
 │  │              │  │   output)     │  │  highlight)   │  │
 │  └──────┬───────┘  └──────┬───────┘  └───────┬───────┘  │
 │         │                 │                   │          │
-│         └────────┬────────┘───────────────────┘          │
-│                  │                                       │
-│         ┌────────▼────────┐                              │
-│         │   DAP Client    │    JSON messages over stdio  │
-│         │  (dap_client.py)│◄────────────────────────┐    │
-│         └────────┬────────┘                         │    │
-│                  │                                  │    │
-└──────────────────┼──────────────────────────────────┼────┘
-                   │ subprocess (stdio)               │
-          ┌────────▼────────────────────────────────────┐
-          │            Debug Adapter                     │
-          │  (debugpy, dlv dap, codelldb, js-debug)       │
-          └────────┬─────────────────────────────────────┘
-                   │
-          ┌────────▼────────┐
-          │   Debuggee      │
-          │  (user program) │
-          └─────────────────┘
+│         └─────────┬───────┘───────────────────┘          │
+│                   │                                      │
+│          ┌────────▼────────┐                             │
+│          │   DAP Client    │   JSON messages over stdio  │
+│          │ (dap_client.py) │◄───────────────────────┐    │
+│          └────────┬────────┘                        │    │
+│                   │                                 │    │
+└───────────────────┼─────────────────────────────────┼────┘
+                    │ subprocess (stdio)              │
+           ┌────────▼───────────────────────────────────┐
+           │            Debug Adapter                    │
+           │  (debugpy, codelldb, cppdbg, js-debug)     │
+           └────────┬───────────────────────────────────┘
+                    │
+           ┌────────▼────────┐
+           │   Debuggee      │
+           │  (user program) │
+           └─────────────────┘
 ```
 
 ### Why DAP?
@@ -54,11 +56,11 @@ Zen IDE debugging integration via the **Debug Adapter Protocol (DAP)** — the s
 | Direct subprocess/pdb | Simple, Python-only | Single language, brittle parsing |
 | GDB/MI protocol | Powerful for C/C++/Rust | Not language-agnostic, complex |
 
-DAP gives us Python debugging on day one (via `debugpy`) and a clear path to JavaScript, Go, Rust, C/C++ later — all through the same UI.
+DAP gives us language-independent debugging through a single UI — the same protocol layer supports Python (`debugpy`), C/C++ (`cppdbg` / `codelldb`), Rust (`codelldb`), and JavaScript (`js-debug`).
 
 ## Components
 
-### 1. DAP Client (`src/debug/dap_client.py`)
+### 1. DAP Client (`src/debugger/dap_client.py`)
 
 The protocol layer. Communicates with debug adapters via JSON over stdio.
 
@@ -114,10 +116,10 @@ Content-Length: 119\r\n
 **Threading model:**
 - Reader thread reads adapter stdout continuously, parses JSON messages
 - Responses matched to pending requests by `seq` / `request_seq`
-- Events dispatched to main GTK thread via `GLib.idle_add()`
+- Events dispatched to main GTK thread via `main_thread_call()` (from `shared.main_thread`) — same pattern used by `GutterDiffRenderer` and `DiagnosticsManager`
 - All UI updates happen on main thread (GTK requirement)
 
-### 2. Debug Session Manager (`src/debug/debug_session.py`)
+### 2. Debug Session Manager (`src/debugger/debug_session.py`)
 
 Orchestrates the debug lifecycle. Sits between UI and DAP client.
 
@@ -162,13 +164,13 @@ class DebugSession:
     def _on_output(self, event: dict) -> None: ...
 ```
 
-### 3. Breakpoint Manager (`src/debug/breakpoint_manager.py`)
+### 3. Breakpoint Manager (`src/debugger/breakpoint_manager.py`)
 
 Persistent breakpoint tracking, independent of debug sessions.
 
 ```python
 class BreakpointManager:
-    """Manages breakpoints across files. Persists to ~/.zen_ide/breakpoints.json."""
+    """Manages breakpoints across files. Persists to ~/.zen_ide/breakpoints.json (SETTINGS_DIR)."""
 
     def toggle(self, file_path: str, line: int) -> bool: ...
     def add(self, file_path: str, line: int, condition: str = "") -> Breakpoint: ...
@@ -196,30 +198,30 @@ class BreakpointManager:
 | Exception breakpoint | Phase 3 | Break on raised/uncaught exceptions |
 | Function breakpoint | Phase 3 | Break when function is entered |
 
-### 4. Debug Panel (`src/debug/debug_panel.py`)
+### 4. Debug Panel (`src/debugger/debug_panel.py`)
 
-Bottom panel UI showing debug state. Follows the `SplitPanelManager` registration pattern.
+Bottom panel UI showing debug state. Registered via `SplitPanelManager` — same pattern as `diff_view` and `system_monitor` (see `window_panels.py`).
 
 ```
-┌──────────────────────────────────────────────────────┐
-│ ▶ Continue │ ⏭ Step Over │ ⏬ Step In │ ⏫ Step Out │ ⏹ Stop │ 🔄 Restart │
-├──────────────────────┬───────────────────────────────┤
-│ CALL STACK           │ VARIABLES                     │
-│                      │                               │
-│ ▸ main()     line 42 │ ▸ Locals                      │
-│   foo()      line 17 │   x = 42                      │
-│   bar()      line 8  │   name = "hello"              │
-│                      │   items = [1, 2, 3]           │
-│                      │ ▸ Globals                     │
-│                      │   __name__ = "__main__"       │
-├──────────────────────┼───────────────────────────────┤
-│ BREAKPOINTS          │ DEBUG CONSOLE                 │
-│                      │                               │
-│ ● main.py:42         │ > print(x)                   │
-│ ● utils.py:17        │ 42                            │
-│ ○ test.py:8 (disabled│ > len(items)                  │
-│                      │ 3                              │
-└──────────────────────┴───────────────────────────────┘
++------------------------------------------------------+
+| > Continue | >> Step Over | v Step In | ^ Step Out | Stop | Restart |
++----------------------+-------------------------------+
+| CALL STACK           | VARIABLES                     |
+|                      |                               |
+| > main()     line 42 | > Locals                      |
+|   foo()      line 17 |   x = 42                      |
+|   bar()      line 8  |   name = "hello"              |
+|                      |   items = [1, 2, 3]           |
+|                      | > Globals                     |
+|                      |   __name__ = "__main__"       |
++----------------------+-------------------------------+
+| BREAKPOINTS          | DEBUG CONSOLE                 |
+|                      |                               |
+| * main.py:42         | > print(x)                   |
+| * utils.py:17        | 42                            |
+| o test.py:8 (disabled| > len(items)                  |
+|                      | 3                              |
++----------------------+-------------------------------+
 ```
 
 **Sub-panels:**
@@ -231,37 +233,39 @@ Bottom panel UI showing debug state. Follows the `SplitPanelManager` registratio
 | **Breakpoints** | All breakpoints with enable/disable toggles | Click to navigate, checkbox to toggle |
 | **Debug Console** | Program output + REPL for evaluating expressions | Type expression, Enter to evaluate |
 
-**Implementation pattern — lazy `@property` initialization:**
+**Integration — lazy `@property` in `ZenIDEWindow`** (same pattern as `diff_view`, `system_monitor`, `dev_pad`):
 
 ```python
-# In ZenIDEWindow
+# In ZenIDEWindow (zen_ide.py)
 @property
 def debug_panel(self):
     if self._debug_panel is None:
-        from debug.debug_panel import DebugPanel
+        from debugger.debug_panel import DebugPanel
         self._debug_panel = DebugPanel(self)
-        self.split_panel_manager.register("debug", self._debug_panel, ...)
+        self._debug_panel.set_visible(False)
+        self.split_panels.register("debug", self._debug_panel, ...)
     return self._debug_panel
 ```
 
-### 5. Breakpoint Gutter Renderer (`src/debug/breakpoint_renderer.py`)
+### 5. Breakpoint Gutter Renderer (`src/debugger/breakpoint_renderer.py`)
 
-Visual breakpoint markers in the editor gutter. Follows the `GutterDiffRenderer` pattern.
+Visual breakpoint markers in the editor gutter. Follows the `GutterDiffRenderer` overlay pattern — draws into the `ZenSourceView.do_snapshot()` pipeline alongside diff bars, color previews, and diagnostics (see `source_view.py:_do_custom_snapshot`).
 
 ```python
 class BreakpointRenderer:
     """Draws breakpoint markers and current-line highlight in the editor gutter."""
 
-    def __init__(self, view: ZenSourceView, breakpoint_mgr: BreakpointManager):
+    def __init__(self, view: GtkSource.View, breakpoint_mgr: BreakpointManager):
         self._view = view
         self._breakpoint_mgr = breakpoint_mgr
         self._current_line: int | None = None  # execution pointer
 
-    def draw(self, snapshot, cr):
-        """Called from ZenSourceView.do_snapshot(). Draws:
+    def draw(self, snapshot, vis_range):
+        """Called from ZenSourceView._do_custom_snapshot(). Draws:
         - Red circles for breakpoints
         - Yellow arrow for current execution line
         - Yellow background highlight on current line
+        vis_range is (start_line, end_line) tuple, pre-computed by source_view.
         """
         ...
 
@@ -271,20 +275,29 @@ class BreakpointRenderer:
         self._view.queue_draw()
 ```
 
-**Click-to-toggle breakpoints:**
+**Snapshot integration** — add to `_do_custom_snapshot` in `source_view.py`:
 
 ```python
-# In ZenSourceView — add click handler on gutter area
-def _on_gutter_click(self, gesture, n_press, x, y):
-    """Toggle breakpoint when user clicks in the gutter area."""
-    if x < GUTTER_BREAKPOINT_AREA_WIDTH:
-        buffer = self.get_buffer()
-        iter_at_y, _ = self.get_line_at_y(int(y))
-        line = iter_at_y.get_line() + 1
-        self._breakpoint_mgr.toggle(self._file_path, line)
+# After gutter_diff_renderer draw, before diagnostics
+if self._breakpoint_renderer:
+    self._breakpoint_renderer.draw(snapshot, vis_range)
 ```
 
-### 6. Debug Configuration (`src/debug/debug_config.py`)
+**Click-to-toggle breakpoints** — extend existing click handler in `input.py` (alongside diagnostic click detection):
+
+```python
+# In ZenSourceViewInputMixin._on_click — before diagnostic check
+# Gutter area click detection (left of line numbers)
+if n_press == 1 and x < GUTTER_BREAKPOINT_AREA_WIDTH:
+    bx, by = self.view.window_to_buffer_coords(Gtk.TextWindowType.WIDGET, int(x), int(y))
+    _, it = self.view.get_iter_at_location(bx, by)
+    line = it.get_line() + 1
+    self._breakpoint_mgr.toggle(self.file_path, line)
+    gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+    return True
+```
+
+### 6. Debug Configuration (`src/debugger/debug_config.py`)
 
 Launch configurations stored per-workspace in `.zen/launch.json`.
 
@@ -300,10 +313,18 @@ Launch configurations stored per-workspace in `.zen/launch.json`.
       "console": "integratedTerminal"
     },
     {
-      "name": "Python: Attach",
-      "type": "python",
-      "request": "attach",
-      "connect": { "host": "localhost", "port": 5678 }
+      "name": "C/C++: Build and Debug",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/${fileBasenameNoExtension}",
+      "preLaunchTask": "make"
+    },
+    {
+      "name": "Rust: Current Project",
+      "type": "codelldb",
+      "request": "launch",
+      "cargo": { "args": ["build"] },
+      "program": "${workspaceFolder}/target/debug/${workspaceFolderBasename}"
     },
     {
       "name": "Node.js: Current File",
@@ -320,29 +341,30 @@ Launch configurations stored per-workspace in `.zen/launch.json`.
 | Language | Adapter | Command | Auto-detect |
 |----------|---------|---------|-------------|
 | Python | debugpy | `python -m debugpy --listen 0 --wait-for-client {program}` | `*.py` files |
-| JavaScript/TypeScript | js-debug | `node js-debug-adapter` | `*.js`, `*.ts` |
-| Go | Delve | `dlv dap` | `*.go`, `go.mod` present |
+| C | cppdbg / CodeLLDB | `codelldb --port 0` or GDB via cppdbg | `*.c`, `Makefile` |
+| C++ | cppdbg / CodeLLDB | `codelldb --port 0` or GDB via cppdbg | `*.cpp`, `*.cc`, `CMakeLists.txt` |
 | Rust | CodeLLDB | `codelldb --port 0` | `*.rs`, `Cargo.toml` present |
-| C/C++ | CodeLLDB / cppdbg | `codelldb --port 0` | `*.c`, `*.cpp`, `Makefile` |
+| JavaScript/TypeScript | js-debug | `node js-debug-adapter` | `*.js`, `*.ts` |
 
-**Zero-config mode:** When no `launch.json` exists, Zen auto-detects the language from the current file and generates a default configuration. User just presses F5.
+**Zero-config mode:** When no `launch.json` exists, Zen auto-detects the language from the current file (using the same detection as `language_detect.py`) and generates a default configuration. User just presses F5.
 
 ## UI Integration
 
 ### Keybindings
 
+Registered via `ActionManager.bind_shortcuts()` in `_bind_shortcuts()` (`zen_ide.py`), using `mod`/`mod_shift` for platform-appropriate modifier keys.
+
 | Action | macOS | Linux | Rationale |
 |--------|-------|-------|-----------|
-| Start/Continue debugging | `Cmd+F5` | `Ctrl+F5` | Standard across IDEs |
-| Stop debugging | `Cmd+Shift+F5` | `Ctrl+Shift+F5` | Standard |
+| Start/Continue debugging | `F5` | `F5` | Universal debugger convention |
+| Stop debugging | `Shift+F5` | `Shift+F5` | Standard |
 | Step Over | `F10` | `F10` | Universal debugger convention |
 | Step Into | `F11` | `F11` | Universal |
 | Step Out | `Shift+F11` | `Shift+F11` | Universal |
 | Toggle Breakpoint | `F9` | `F9` | Universal |
-| Toggle Debug Panel | `Cmd+Shift+Y` | `Ctrl+Shift+Y` | Standard convention |
-| Debug Console focus | `Cmd+Shift+D` | `Ctrl+Shift+D` | — |
+| Toggle Debug Panel | `Cmd+Shift+B` | `Ctrl+Shift+B` | — |
 
-> **Conflict note:** `Cmd+Shift+D` is currently bound to Sketch Pad toggle. Reassign Sketch Pad to `Cmd+Shift+K` or use `Cmd+Shift+B` for debug panel instead.
+> **Note:** `Cmd+Shift+D` / `Ctrl+Shift+D` is already bound to Sketch Pad (`open_sketch_pad`). Debug panel uses `Ctrl+Shift+B` instead. No other conflicts with existing shortcuts in `_bind_shortcuts()`.
 
 ### Editor Decorations
 
@@ -363,98 +385,99 @@ When a debug session is active and stopped at a breakpoint:
 
 ### Status Bar Integration
 
-During active debug session, the status bar shows:
+The `StatusBar` (`status_bar.py`) already shows diagnostics and cursor position. During an active debug session, extend the right section to show debug state:
 
 ```
-[🐛 Debugging: main.py] [Stopped at line 42] [Thread 1]
+[Debugging: main.py] [Stopped at line 42] [Thread 1]
 ```
 
 ### Dev Pad Integration
 
-Debug sessions are logged as activities:
+The Dev Pad (`dev_pad.py`) tracks user activities in `~/.zen_ide/dev_pad.json`. Debug sessions logged as activities:
 
 ```
-🐛 Debug session started — main.py (Python)
-⏸ Breakpoint hit — main.py:42
-⏹ Debug session ended — 2m 34s
+Debug session started — main.py (Python)
+Breakpoint hit — main.py:42
+Debug session ended — 2m 34s
 ```
 
 ## File Structure
 
 ```
-src/debug/
+src/debugger/
 ├── __init__.py
 ├── dap_client.py           # DAP protocol transport + message handling
 ├── debug_session.py         # Session lifecycle orchestration
 ├── debug_config.py          # Launch configuration loading + adapter registry
 ├── breakpoint_manager.py    # Breakpoint state + persistence
 ├── debug_panel.py           # Bottom panel UI (call stack, variables, console)
-├── breakpoint_renderer.py   # Gutter overlay for breakpoint markers
+├── breakpoint_renderer.py   # Gutter overlay for breakpoint markers (snapshot pipeline)
 └── debug_console.py         # REPL-style expression evaluator widget
 ```
+
+> `src/debug/` remains the widget inspector (`widget_inspector.py`, `inspect_popup.py`).
 
 ## Implementation Phases
 
 ### Phase 1 — Foundation (MVP)
 
-**Goal:** Debug a Python file with breakpoints, step through code, inspect variables.
+**Goal:** Language-independent DAP core + Python debugging with breakpoints, stepping, variable inspection.
 
-| Task | Effort | Description |
-|------|--------|-------------|
-| DAP Client | 3 days | JSON/stdio transport, request/response/event handling |
-| Debug Session Manager | 2 days | Lifecycle, state machine, thread management |
-| Breakpoint Manager | 1 day | Toggle/persist breakpoints, change notifications |
-| Breakpoint Gutter Renderer | 1 day | Red dots in gutter, click to toggle |
-| Current Line Highlight | 0.5 days | Yellow arrow + line highlight during stopped state |
-| Debug Panel (basic) | 2 days | Call stack + variables tree + toolbar |
-| Keybindings | 0.5 days | F5, F9, F10, F11, Shift+F11 |
-| Python adapter integration | 1 day | debugpy launch, zero-config for `*.py` |
-| **Total Phase 1** | **~11 days** | |
+| Task | Description |
+|------|-------------|
+| DAP Client | JSON/stdio transport, request/response/event handling |
+| Debug Session Manager | Lifecycle, state machine, thread management |
+| Breakpoint Manager | Toggle/persist breakpoints, change notifications |
+| Breakpoint Gutter Renderer | Red dots in gutter via snapshot pipeline, click to toggle |
+| Current Line Highlight | Yellow arrow + line highlight during stopped state |
+| Debug Panel (basic) | Call stack + variables tree + toolbar (register with `split_panels`) |
+| Keybindings | F5, F9, F10, F11, Shift+F11, Ctrl+Shift+B |
+| Python adapter integration | debugpy launch, zero-config for `*.py` |
 
-**Phase 1 delivers:** Click gutter to set breakpoint → F5 to debug → steps through code → see variables and call stack.
+**Phase 1 delivers:** Click gutter to set breakpoint, F5 to debug, step through code, see variables and call stack.
 
-### Phase 2 — Polish
+### Phase 2 — Core Languages
 
-| Task | Effort | Description |
-|------|--------|-------------|
-| Debug Console (REPL) | 2 days | Evaluate expressions while stopped |
-| Conditional breakpoints | 1 day | Right-click breakpoint → add condition |
-| Logpoints | 0.5 days | Log messages without stopping |
-| `launch.json` support | 1.5 days | Load/save configurations, config picker |
-| Hover variable inspection | 1 day | Hover over variable in editor → tooltip with value |
-| Status bar integration | 0.5 days | Debug state in status bar |
-| Dev Pad logging | 0.5 days | Log debug session activities |
-| **Total Phase 2** | **~7 days** | |
+**Goal:** Extend to C, C++, Rust, JavaScript — the DAP core is language-independent, so this is adapter configuration + testing.
 
-### Phase 3 — Multi-language
+| Task | Description |
+|------|-------------|
+| C/C++ adapter (cppdbg / CodeLLDB) | GDB/LLDB-backed debugging via DAP, zero-config for `*.c`, `*.cpp` |
+| Rust adapter (CodeLLDB) | CodeLLDB integration, zero-config for `Cargo.toml` projects |
+| JavaScript/TypeScript adapter (js-debug) | js-debug integration, zero-config for `*.js`, `*.ts` |
+| `launch.json` support | Load/save configurations, config picker |
+| Debug Console (REPL) | Evaluate expressions while stopped |
 
-| Task | Effort | Description |
-|------|--------|-------------|
-| Node.js/JavaScript adapter | 1 day | js-debug integration |
-| Go adapter (Delve) | 1 day | `dlv dap` integration |
-| Rust/C++ adapter (CodeLLDB) | 1 day | CodeLLDB integration |
-| Exception breakpoints | 1 day | Break on caught/uncaught exceptions |
-| Multi-thread debugging | 1.5 days | Thread picker, per-thread stepping |
-| Watch expressions panel | 1 day | Persistent expression watches |
-| **Total Phase 3** | **~6.5 days** | |
+### Phase 3 — Polish
+
+| Task | Description |
+|------|-------------|
+| Conditional breakpoints | Right-click breakpoint, add condition |
+| Logpoints | Log messages without stopping |
+| Hover variable inspection | Hover over variable in editor, tooltip with value |
+| Exception breakpoints | Break on caught/uncaught exceptions |
+| Status bar integration | Debug state in `StatusBar` |
+| Dev Pad logging | Log debug session activities |
+| Watch expressions panel | Persistent expression watches |
 
 ### Phase 4 — Advanced
 
 | Task | Description |
 |------|-------------|
+| Go adapter (Delve) | `dlv dap` integration |
+| Multi-thread debugging | Thread picker, per-thread stepping |
 | Remote debugging | Attach to remote processes (SSH tunnel) |
 | Debug configurations UI | Visual editor for `launch.json` |
 | Inline variable values | Show variable values inline after statements |
 | Data breakpoints | Break when a variable's value changes |
 | Disassembly view | Low-level view for C/C++/Rust |
-| Performance profiling | Integrate with profiler adapters |
 
 ## Startup Impact
 
-**Zero impact on startup.** All debug code is lazily loaded:
+**Zero impact on startup.** All debug code is lazily loaded — same strategy as `diff_view`, `system_monitor`, `dev_pad`:
 
-- No module-level imports of `src/debug/` anywhere in the startup path
-- Debug panel created only on first F5 press or Cmd+Shift+Y
+- No module-level imports of `src/debugger/` anywhere in the startup path
+- Debug panel created only on first F5 press or Ctrl+Shift+B (lazy `@property`)
 - `BreakpointRenderer` attached only when a file with breakpoints is opened
 - DAP client subprocess spawned only when debugging starts
 
@@ -474,14 +497,26 @@ The DAP client itself requires **no additional dependencies** — it's pure Pyth
 | File | Purpose | Location |
 |------|---------|----------|
 | `launch.json` | Debug launch configs | `.zen/launch.json` in workspace root |
-| `breakpoints.json` | Persisted breakpoints | `~/.zen_ide/breakpoints.json` |
+| `breakpoints.json` | Persisted breakpoints | `~/.zen_ide/breakpoints.json` (alongside `settings.json`, `dev_pad.json`) |
 
-## Open Questions
+## Integration Points Summary
 
-1. **Panel placement:** Bottom panel (alongside terminal) vs. right split panel (alongside editor)? Bottom panel is recommended since debugging needs horizontal space for variables + call stack side by side, and it mirrors the layout users are familiar with from other IDEs.
+| Component | File | How to integrate |
+|-----------|------|------------------|
+| Snapshot pipeline | `source_view.py:_do_custom_snapshot` | Add `breakpoint_renderer.draw(snapshot, vis_range)` |
+| Gutter click | `input.py:_on_click` | Add breakpoint toggle before diagnostic check |
+| Lazy init | `zen_ide.py` | Add `debug_panel` `@property` alongside `diff_view`, `dev_pad` |
+| Panel registration | `window_panels.py` | `self.split_panels.register("debug", ...)` |
+| Keybindings | `zen_ide.py:_bind_shortcuts` | Add F5, F9, F10, F11, Ctrl+Shift+B |
+| Actions | `zen_ide.py:_create_actions` | Add `debug_start`, `debug_stop`, `toggle_breakpoint`, etc. |
+| Threading | `shared/main_thread.py` | Use `main_thread_call()` for DAP event dispatch |
 
-2. **Adapter installation:** Should Zen auto-install debug adapters (e.g., `pip install debugpy`) or require manual setup? Recommendation: prompt the user to install on first use, with a one-click install button.
+## Decisions
 
-3. **Legacy compatibility:** Should we support `.code-workspace` `launch.json` formats in addition to `.zen/launch.json`? Recommendation: yes, read as fallback for easier migration.
+1. **Panel placement:** Right split panel via `SplitPanelManager` — consistent with diff view and system monitor. Debug panel needs horizontal space for variables + call stack side by side.
 
-4. **Terminal integration:** Should debug output go to the debug console panel, the integrated terminal, or both? Recommendation: program stdout/stderr goes to Debug Console panel; allow `"console": "integratedTerminal"` option to redirect to the terminal instead.
+2. **Adapter installation:** Prompt the user to install on first use with clear instructions. No auto-install.
+
+3. **Terminal integration:** Program stdout/stderr goes to Debug Console panel by default; `"console": "integratedTerminal"` option redirects to the existing `TerminalView` instead.
+
+4. **Directory naming:** `src/debugger/` (not `src/debug/`) since `src/debug/` is the widget inspector.
