@@ -62,3 +62,9 @@ Specifically:
 - **No personal identifiers** — never include usernames, email addresses, or machine hostnames in docs or code
 
 If an example requires a path, use a generic placeholder like `~/project/` or a relative path from the repo root. This keeps the repository portable, professional, and free of accidental data leaks.
+
+## No Broken Tests
+
+**AI agents must NEVER return control to the user with failing tests.** Before considering any task complete, the agent must run the test suite and verify all tests pass. If tests fail — whether caused by the agent's changes or pre-existing — the agent must fix them before finishing.
+
+This applies to every interaction where code is modified: bug fixes, new features, refactors, and any other change. The agent must not present its work as done, ask for review, or hand back control while the test suite is red. If a test failure is genuinely outside the agent's scope (e.g. infrastructure issue, flaky CI), the agent must explicitly flag it to the user rather than silently ignoring it.
