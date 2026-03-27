@@ -569,6 +569,12 @@ class NvimPopup(Gtk.Window):
                 font-size: {int(font_size * 0.9)}pt;
             }}
 
+            .nvim-popup-file-header-box {{
+                background-color: rgba(255, 0, 0, 0.25);
+                border-radius: {border_radius}px;
+                padding: 4px 8px;
+            }}
+
             .nvim-popup-list-item-icon {{
                 color: {theme.accent_color};
                 margin-right: 8px;
