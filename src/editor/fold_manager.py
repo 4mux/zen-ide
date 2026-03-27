@@ -11,8 +11,9 @@ from gi.repository import GLib, Graphene, Gtk, GtkSource, Pango
 
 from fonts import get_font_settings
 from icons import ICON_FONT_FAMILY
+from shared.settings import get_setting
 from shared.utils import hex_to_gdk_rgba
-from themes import get_theme
+from themes import get_theme, subscribe_settings_change
 
 # ---------------------------------------------------------------------------
 # Foldable node types per tree-sitter language
@@ -119,6 +120,9 @@ class LineNumberFoldRenderer(GtkSource.GutterRenderer):
         self._layout = None  # reusable PangoLayout for number text
         self._icon_layout = None  # reusable PangoLayout for fold icon glyph
         self._hover = False  # chevrons only visible on hover
+        self._chevron_opacity = 0.0  # animated opacity (0 = hidden, 1 = full)
+        self._fade_tick_id = None  # GLib tick callback id
+        self._fade_target = 0.0  # target opacity
         self.set_xpad(0)
         self.set_ypad(0)
         self.set_alignment_mode(GtkSource.GutterRendererAlignmentMode.CELL)
@@ -208,11 +212,12 @@ class LineNumberFoldRenderer(GtkSource.GutterRenderer):
         # --- fold chevron (icon font glyph) — visible on hover or when collapsed ---
         if line not in fm._fold_regions:
             return
-        if not self._hover and line not in fm._collapsed:
+        collapsed = line in fm._collapsed
+        opacity = 1.0 if collapsed else self._chevron_opacity
+        if opacity <= 0.01:
             return
 
-        chevron_fg = hex_to_gdk_rgba(theme.line_number_fg, 0.7)
-        collapsed = line in fm._collapsed
+        chevron_fg = hex_to_gdk_rgba(theme.line_number_fg, 0.7 * opacity)
         glyph = "\U000f0142" if collapsed else "\U000f0140"
 
         if self._icon_layout is None:
@@ -236,15 +241,38 @@ class LineNumberFoldRenderer(GtkSource.GutterRenderer):
         snapshot.append_layout(self._icon_layout, chevron_fg)
         snapshot.restore()
 
-    # -- hover handling ---------------------------------------------------
+    # -- hover handling (fade in/out) -------------------------------------
+
+    _FADE_STEP = 0.08  # opacity change per tick (~16ms)
 
     def _on_hover_enter(self, controller, x, y):
         self._hover = True
-        self.queue_draw()
+        self._fade_target = 1.0
+        self._start_fade()
 
     def _on_hover_leave(self, controller):
         self._hover = False
+        self._fade_target = 0.0
+        self._start_fade()
+
+    def _start_fade(self):
+        if self._fade_tick_id is not None:
+            return  # already running
+        self._fade_tick_id = GLib.timeout_add(16, self._fade_tick)
+
+    def _fade_tick(self):
+        if self._chevron_opacity < self._fade_target:
+            self._chevron_opacity = min(self._chevron_opacity + self._FADE_STEP, 1.0)
+        elif self._chevron_opacity > self._fade_target:
+            self._chevron_opacity = max(self._chevron_opacity - self._FADE_STEP, 0.0)
+
         self.queue_draw()
+
+        if abs(self._chevron_opacity - self._fade_target) < 0.01:
+            self._chevron_opacity = self._fade_target
+            self._fade_tick_id = None
+            return False  # stop
+        return True  # continue
 
     # -- click handling ---------------------------------------------------
 
@@ -293,7 +321,8 @@ class FoldManager:
             buf.connect("changed", self._on_buffer_changed)
             buf.connect("mark-set", self._on_mark_set)
 
-        # Disable built-in line numbers — we render them ourselves
+        # Always disable the built-in line numbers — our custom renderer
+        # replaces them and is controlled by the show_line_numbers setting.
         view.set_show_line_numbers(False)
 
         # Schedule initial fold region computation (buffer is already loaded)
@@ -303,6 +332,22 @@ class FoldManager:
         self._gutter_renderer = LineNumberFoldRenderer(self, view)
         gutter = view.get_gutter(Gtk.TextWindowType.LEFT)
         gutter.insert(self._gutter_renderer, 0)
+
+        # Respect editor.show_line_numbers setting (initial + live changes)
+        editor_settings = get_setting("editor", {})
+        if not editor_settings.get("show_line_numbers", True):
+            self._gutter_renderer.set_visible(False)
+        subscribe_settings_change(self._on_settings_change)
+
+    def set_show_line_numbers(self, show: bool):
+        """Toggle visibility of the custom line-number + fold gutter."""
+        if self._gutter_renderer:
+            self._gutter_renderer.set_visible(show)
+
+    def _on_settings_change(self, key, value):
+        if key == "editor" and isinstance(value, dict):
+            show = value.get("show_line_numbers", True)
+            self.set_show_line_numbers(bool(show))
 
     # ------------------------------------------------------------------
     # Tag setup
@@ -361,19 +406,19 @@ class FoldManager:
         from .tree_sitter_buffer import ts_lang_for_buffer
 
         lang_id = ts_lang_for_buffer(buf)
-        if not lang_id or lang_id not in FOLD_NODE_TYPES:
-            self._fold_regions = {}
-            return False
 
         start_it = buf.get_start_iter()
         end_it = buf.get_end_iter()
         content = buf.get_text(start_it, end_it, True)
-        tree = self._ts_cache.get_tree(content, lang_id)
-        if not tree:
-            return False
 
         new_regions = {}
-        self._collect_fold_regions(tree.root_node, lang_id, new_regions)
+        if lang_id and lang_id in FOLD_NODE_TYPES:
+            tree = self._ts_cache.get_tree(content, lang_id)
+            if tree:
+                self._collect_fold_regions(tree.root_node, lang_id, new_regions)
+        else:
+            # Brace/bracket folding for JSON and other non-tree-sitter languages
+            self._collect_brace_fold_regions(content, new_regions)
 
         if self._collapsed:
             new_collapsed = {}
@@ -403,6 +448,40 @@ class FoldManager:
                 regions[start_line] = end_line
         for child in node.children:
             self._collect_fold_regions(child, lang_id, regions)
+
+    @staticmethod
+    def _collect_brace_fold_regions(content, regions):
+        """Detect fold regions from matched braces/brackets for any language."""
+        stack = []  # (open_char, line_number)
+        in_string = False
+        escape = False
+        quote_char = None
+
+        for line_num, line in enumerate(content.splitlines()):
+            for ch in line:
+                if escape:
+                    escape = False
+                    continue
+                if ch == "\\":
+                    escape = True
+                    continue
+                if in_string:
+                    if ch == quote_char:
+                        in_string = False
+                    continue
+                if ch in ('"', "'"):
+                    in_string = True
+                    quote_char = ch
+                    continue
+                if ch in ("{", "["):
+                    stack.append((ch, line_num))
+                elif ch in ("}", "]"):
+                    if stack:
+                        open_ch, start_line = stack.pop()
+                        if line_num > start_line:
+                            # Only record outermost when two opens share a line
+                            if start_line not in regions:
+                                regions[start_line] = line_num
 
     # ------------------------------------------------------------------
     # Toggle / collapse / expand
