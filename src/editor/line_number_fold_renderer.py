@@ -5,7 +5,7 @@ Provides a unified GutterRenderer that draws both line numbers and fold
 chevrons in a single wider gutter column.  Used by FoldManager.
 """
 
-from gi.repository import GLib, Graphene, Gtk, GtkSource, Pango
+from gi.repository import GLib, Graphene, Gsk, Gtk, GtkSource, Pango
 
 from fonts import get_font_settings
 from icons import ICON_FONT_FAMILY
@@ -13,9 +13,9 @@ from shared.utils import hex_to_gdk_rgba
 from themes import get_theme
 
 _CHEVRON_SIZE = 7
-_CHEVRON_COL_WIDTH = 14  # extra pixels for the chevron area
-_NUM_RIGHT_PAD = 6  # gap between number text and chevron area
-_NUM_LEFT_PAD = 14  # left padding before line number (matches chevron area)
+_CHEVRON_PAD = 6  # symmetric padding on each side of the chevron zone
+_CHEVRON_COL_WIDTH = _CHEVRON_PAD + 14 + _CHEVRON_PAD  # pad + icon + pad
+_NUM_PAD = 10  # equal padding on left and right of the number zone
 _FIXED_DIGIT_COUNT = 4  # fixed digit count so the gutter never resizes
 
 
@@ -77,7 +77,8 @@ class LineNumberFoldRenderer(GtkSource.GutterRenderer):
     def do_measure(self, _orientation, _for_size):
         self._ensure_char_width()
         num_width = int(self._digit_count * self._char_width)
-        total = _NUM_LEFT_PAD + num_width + _NUM_RIGHT_PAD + _CHEVRON_COL_WIDTH
+        num_zone = _NUM_PAD + num_width + _NUM_PAD
+        total = num_zone + _CHEVRON_COL_WIDTH
         return total, total, -1, -1
 
     # -- rendering --------------------------------------------------------
@@ -96,10 +97,10 @@ class LineNumberFoldRenderer(GtkSource.GutterRenderer):
         theme = get_theme()
         self._ensure_char_width()
         num_col_width = int(self._digit_count * self._char_width)
-        total_w = _NUM_LEFT_PAD + num_col_width + _NUM_RIGHT_PAD + _CHEVRON_COL_WIDTH
+        num_zone = _NUM_PAD + num_col_width + _NUM_PAD
         line_y, line_h = lines.get_line_yrange(line, Gtk.TextWindowType.WIDGET)
 
-        # --- line number ---
+        # --- line number (centered in number zone) ---
         is_current = lines.is_cursor(line)
         num_fg = hex_to_gdk_rgba(theme.fg_color if is_current else theme.line_number_fg, 1.0)
 
@@ -108,7 +109,8 @@ class LineNumberFoldRenderer(GtkSource.GutterRenderer):
 
         self._layout.set_text(str(line + 1), -1)
         _ink, logical = self._layout.get_pixel_extents()
-        x = _NUM_LEFT_PAD + (num_col_width - logical.width) / 2
+        total_w = num_zone + _CHEVRON_COL_WIDTH
+        x = (total_w - logical.width) / 2
         y = line_y + (line_h - logical.height) / 2
 
         snapshot.save()
@@ -116,7 +118,7 @@ class LineNumberFoldRenderer(GtkSource.GutterRenderer):
         snapshot.append_layout(self._layout, num_fg)
         snapshot.restore()
 
-        # --- fold chevron (icon font glyph) — visible on hover or when collapsed ---
+        # --- fold chevron (centered in chevron zone with symmetric padding) ---
         if line not in fm._fold_regions:
             return
         collapsed = line in fm._collapsed
@@ -125,29 +127,31 @@ class LineNumberFoldRenderer(GtkSource.GutterRenderer):
             return
 
         chevron_fg = hex_to_gdk_rgba(theme.line_number_fg, 0.7 * opacity)
-        glyph = "\U000f0142" if collapsed else "\U000f0140"
+        sz = _CHEVRON_SIZE
+        alloc_w = self.get_allocation().width
+        chevron_area = alloc_w - num_zone
+        cx = num_zone + chevron_area / 2
+        cy = line_y + line_h / 2
 
-        if self._icon_layout is None:
-            self._icon_layout = self._view.create_pango_layout("")
-            # Get size from font manager instead of hardcoding
-            editor_font = get_font_settings("editor")
-            sz = int(editor_font.get("size", 13) * Pango.SCALE * 1.2)
-            attrs = Pango.AttrList.new()
-            attrs.insert(Pango.attr_family_new(ICON_FONT_FAMILY))
-            attrs.insert(Pango.attr_size_new(sz))
-            attrs.insert(Pango.attr_weight_new(Pango.Weight.BOLD))
-            self._icon_layout.set_attributes(attrs)
+        # DEBUG: draw red rect for chevron zone, blue rect for full gutter
+        dbg_red = hex_to_gdk_rgba("#ff0000", 0.3)
+        dbg_blue = hex_to_gdk_rgba("#0000ff", 0.15)
+        snapshot.append_color(dbg_blue, Graphene.Rect().init(0, line_y, alloc_w, line_h))
+        snapshot.append_color(dbg_red, Graphene.Rect().init(num_zone, line_y, chevron_area, line_h))
 
-        self._icon_layout.set_text(glyph, -1)
-        _ink, icon_log = self._icon_layout.get_pixel_extents()
-        chevron_zone = _NUM_RIGHT_PAD + _CHEVRON_COL_WIDTH
-        ix = _NUM_LEFT_PAD + num_col_width + (chevron_zone - icon_log.width) / 2
-        iy = line_y + (line_h - icon_log.height) / 2
-
-        snapshot.save()
-        snapshot.translate(Graphene.Point().init(ix, iy))
-        snapshot.append_layout(self._icon_layout, chevron_fg)
-        snapshot.restore()
+        builder = Gsk.PathBuilder.new()
+        if collapsed:
+            # Right-pointing triangle
+            builder.move_to(cx - sz / 2, cy - sz / 2)
+            builder.line_to(cx + sz / 2, cy)
+            builder.line_to(cx - sz / 2, cy + sz / 2)
+        else:
+            # Down-pointing triangle
+            builder.move_to(cx - sz / 2, cy - sz / 2)
+            builder.line_to(cx + sz / 2, cy - sz / 2)
+            builder.line_to(cx, cy + sz / 2)
+        builder.close()
+        snapshot.append_fill(builder.to_path(), Gsk.FillRule.WINDING, chevron_fg)
 
     # -- hover handling (fade in/out) -------------------------------------
 
