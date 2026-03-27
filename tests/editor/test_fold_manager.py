@@ -292,7 +292,7 @@ class TestBraceFoldRegions(unittest.TestCase):
         self.assertIn(1, regions)  # inner {}
 
     def test_array(self):
-        content = '[\n  1,\n  2,\n  3\n]'
+        content = "[\n  1,\n  2,\n  3\n]"
         regions = self._collect(content)
         self.assertEqual(regions, {0: 4})
 

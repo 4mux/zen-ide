@@ -376,11 +376,10 @@ class FoldManager:
         if mark != buf.get_insert():
             return
         cursor_line = location.get_line()
-        to_expand = [
-            sl for sl, el in self._collapsed.items() if sl < cursor_line <= el
-        ]
+        to_expand = [sl for sl, el in self._collapsed.items() if sl < cursor_line <= el]
         if not to_expand:
             return
+
         # Defer buffer modifications out of signal handler to avoid
         # Pango layout corruption during GTK's internal processing.
         def _do_expand():
@@ -390,6 +389,7 @@ class FoldManager:
                     del self._collapsed[sl]
             self._view.queue_draw()
             return False
+
         GLib.idle_add(_do_expand)
 
     # ------------------------------------------------------------------
@@ -593,6 +593,7 @@ class FoldManager:
         if start_iter.compare(end_iter) >= 0:
             return
         buf.remove_tag(self._fold_tag, start_iter, end_iter)
+
 
 # ---------------------------------------------------------------------------
 # Module-level helpers
