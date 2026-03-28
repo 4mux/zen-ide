@@ -359,7 +359,6 @@ class ZenIDEWindow(
                 "shortcuts": self._on_shortcuts,
                 "system_monitor": self._on_system_monitor,
                 "view_crash_logs": self._on_view_crash_logs,
-                "view_ai_debug_log": self._on_view_ai_debug_log,
                 "toggle_inspect": self._on_toggle_inspect,
                 "about": self._on_about,
                 "quit": self._on_quit,

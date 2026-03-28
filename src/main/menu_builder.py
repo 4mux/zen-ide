@@ -59,7 +59,6 @@ class MenuBuilder:
         help_section.append("Widget Inspector", "app.toggle_inspect")
         help_section.append("System Monitor...", "app.system_monitor")
         help_section.append("View Crash Logs", "app.view_crash_logs")
-        help_section.append("View AI Debug Log", "app.view_ai_debug_log")
         help_section.append("About", "app.about")
         menu.append_section("Help", help_section)
 

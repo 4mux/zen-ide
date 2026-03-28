@@ -100,7 +100,6 @@ class TestMenuBuilder:
             "Widget Inspector",
             "System Monitor...",
             "View Crash Logs",
-            "View AI Debug Log",
             "About",
         ]
 
@@ -113,7 +112,6 @@ class TestMenuBuilder:
             "app.toggle_inspect",
             "app.system_monitor",
             "app.view_crash_logs",
-            "app.view_ai_debug_log",
             "app.about",
         ]
 

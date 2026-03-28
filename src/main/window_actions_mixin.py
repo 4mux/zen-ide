@@ -116,18 +116,6 @@ class WindowActionsMixin(FileActionsMixin, ViewActionsMixin):
             crash_log.write_text("# Crash Log\n\nNo crashes recorded yet.\n")
             self.editor_view.open_file(str(crash_log))
 
-    def _on_view_ai_debug_log(self, action, param):
-        """Open the AI debug log file in the editor."""
-        from shared.ai_debug_log import get_ai_debug_log_path
-
-        log_path = get_ai_debug_log_path()
-        if log_path.exists():
-            self.editor_view.open_file(str(log_path))
-        else:
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            log_path.write_text("# AI Debug Log\n\nNo AI requests logged yet.\n")
-            self.editor_view.open_file(str(log_path))
-
     def _on_about(self, action, param):
         """Show about dialog in vim-style popup."""
         from popups.about_popup import show_about
