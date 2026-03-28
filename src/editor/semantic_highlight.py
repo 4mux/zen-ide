@@ -69,9 +69,8 @@ def setup_semantic_highlight(tab, theme):
     self_tag = tag_table.lookup(TAG_SELF)
     if self_tag:
         self_tag.set_property("foreground-rgba", self_color)
-        self_tag.set_property("style", 2)  # Pango.Style.ITALIC
     else:
-        self_tag = buf.create_tag(TAG_SELF, foreground_rgba=self_color, style=2)
+        self_tag = buf.create_tag(TAG_SELF, foreground_rgba=self_color)
 
     prop_color = _parse_hex(theme.get_syntax_color("syntax_variable"))
     prop_tag = tag_table.lookup(TAG_PROPERTY)

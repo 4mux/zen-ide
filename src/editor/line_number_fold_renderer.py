@@ -22,6 +22,7 @@ _ZONE_WIDTH = 20  # Width for breakpoint and chevron renderers
 _BP_LEFT_PAD = 6  # Left padding to avoid paned separator grab zone
 _NUM_PAD = 4  # Right padding for line numbers
 _MIN_DIGITS = 2  # Minimum digit slots
+_GIT_MARKER_WIDTH = 3  # Width of git diff marker bar
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +224,64 @@ class LineNumberRenderer(GtkSource.GutterRenderer):
 
 
 # ---------------------------------------------------------------------------
-# 3. Fold chevron renderer (right column)
+# 3. Git diff marker renderer (between line numbers and chevrons)
+# ---------------------------------------------------------------------------
+
+
+class GitDiffGutterRenderer(GtkSource.GutterRenderer):
+    __gtype_name__ = "GitDiffGutterRenderer"
+
+    def __init__(self, fold_manager):
+        super().__init__()
+        self._fm = fold_manager
+        self._diff_lines = {}  # line_num (0-based) -> "add" | "change" | "del"
+        self.set_xpad(0)
+        self.set_ypad(0)
+
+    def set_diff_lines(self, diff_lines):
+        """Update diff data (called from GutterDiffRenderer after recompute)."""
+        self._diff_lines = diff_lines
+        self.queue_draw()
+
+    def do_measure(self, _orientation, _for_size):
+        return _GIT_MARKER_WIDTH, _GIT_MARKER_WIDTH, -1, -1
+
+    def do_query_data(self, lines, line):
+        pass
+
+    def do_snapshot_line(self, snapshot, lines, line):
+        if any(sl < line <= el for sl, el in self._fm._collapsed.items()):
+            return
+
+        # Paint gutter background per-line
+        theme = get_theme()
+        line_y, line_h = lines.get_line_yrange(line, Gtk.TextWindowType.WIDGET)
+        snapshot.append_color(
+            hex_to_gdk_rgba(theme.line_number_bg, 1.0),
+            Graphene.Rect().init(0, line_y, _GIT_MARKER_WIDTH, line_h),
+        )
+
+        dtype = self._diff_lines.get(line)
+        if not dtype:
+            return
+
+        if dtype == "add":
+            color = hex_to_gdk_rgba(theme.git_added, 0.9)
+        elif dtype == "change":
+            color = hex_to_gdk_rgba(theme.git_modified, 0.9)
+        elif dtype == "del":
+            color = hex_to_gdk_rgba(theme.git_deleted, 0.9)
+        else:
+            return
+
+        if dtype == "del":
+            snapshot.append_color(color, Graphene.Rect().init(0, line_y, _GIT_MARKER_WIDTH, min(line_h, 4)))
+        else:
+            snapshot.append_color(color, Graphene.Rect().init(0, line_y, _GIT_MARKER_WIDTH, line_h))
+
+
+# ---------------------------------------------------------------------------
+# 4. Fold chevron renderer (right column)
 # ---------------------------------------------------------------------------
 
 
@@ -271,6 +329,9 @@ class FoldChevronRenderer(GtkSource.GutterRenderer):
                 self._icon_font_desc.set_size(14 * Pango.SCALE)
 
     def do_snapshot_line(self, snapshot, lines, line):
+        if any(sl < line <= el for sl, el in self._fm._collapsed.items()):
+            return
+
         # Paint editor background so chevron zone blends with the editor, not the gutter
         theme = get_theme()
         line_y, line_h = lines.get_line_yrange(line, Gtk.TextWindowType.WIDGET)

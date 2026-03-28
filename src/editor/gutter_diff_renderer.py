@@ -14,13 +14,10 @@ import difflib
 import os
 import threading
 
-from gi.repository import GLib, Graphene, Gtk, GtkSource
+from gi.repository import GLib, GtkSource
 
-from constants import GUTTER_DIFF_WIDTH
 from shared.git_manager import get_git_manager
 from shared.main_thread import main_thread_call
-from shared.utils import hex_to_gdk_rgba
-from themes import get_theme
 
 _NO_REPO = object()  # Sentinel: file is outside any git repo
 
@@ -35,6 +32,7 @@ class GutterDiffRenderer:
         self._head_content = None
         self._update_timeout_id = None
         self._buffer_changed_id = None
+        self._gutter_renderer = None  # GitDiffGutterRenderer for gutter display
 
         # Connect to buffer changes
         buf = view.get_buffer()
@@ -131,6 +129,8 @@ class GutterDiffRenderer:
         # Only redraw if diff actually changed
         if new_diff_lines != self._diff_lines:
             self._diff_lines = new_diff_lines
+            if self._gutter_renderer:
+                self._gutter_renderer.set_diff_lines(self._diff_lines)
             self._queue_redraw()
 
     def _queue_redraw(self):
@@ -140,77 +140,3 @@ class GutterDiffRenderer:
     def refresh_head(self):
         """Re-fetch HEAD content (call after file save)."""
         self._fetch_head_content()
-
-    def draw(self, snapshot, vis_range=None, fold_unsafe=None):
-        """Draw diff indicators using GtkSnapshot (called from ZenSourceView.do_snapshot).
-
-        vis_range: optional (start_ln, end_ln) tuple to avoid redundant get_visible_rect.
-        """
-        if not self._diff_lines:
-            return
-
-        view = self._view
-        buf = view.get_buffer()
-        if not buf:
-            return
-
-        theme = get_theme()
-        width = GUTTER_DIFF_WIDTH
-
-        # Cache parsed colors as Gdk.RGBA
-        color_add = hex_to_gdk_rgba(theme.git_added, 0.9)
-        color_change = hex_to_gdk_rgba(theme.git_modified, 0.9)
-        color_del = hex_to_gdk_rgba(theme.git_deleted, 0.9)
-
-        # Position indicators at the left border of the gutter
-        indicator_x = 0
-
-        # Use pre-computed visible range if available
-        if vis_range is not None:
-            start_ln, end_ln = vis_range
-        else:
-            visible = view.get_visible_rect()
-            start_it, _ = view.get_line_at_y(visible.y)
-            end_it, _ = view.get_line_at_y(visible.y + visible.height)
-            start_ln = start_it.get_line()
-            end_ln = end_it.get_line()
-
-        rect = Graphene.Rect()
-
-        # Get fold-unsafe lines from the view if not passed explicitly
-        if fold_unsafe is None:
-            fold_unsafe = getattr(self._view, "_fold_unsafe_lines", set())
-
-        for line_num in range(start_ln, end_ln + 1):
-            dtype = self._diff_lines.get(line_num)
-            if not dtype:
-                continue
-            if line_num in fold_unsafe:
-                continue
-
-            if dtype == "add":
-                color = color_add
-            elif dtype == "change":
-                color = color_change
-            elif dtype == "del":
-                color = color_del
-            else:
-                continue
-
-            # Get line position in buffer coordinates
-            it = buf.get_iter_at_line(line_num)
-            if it is None:
-                continue
-            # Handle GTK4 tuple return (bool, iter)
-            try:
-                it = it[1]
-            except (TypeError, IndexError):
-                pass
-            y, lh = view.get_line_yrange(it)
-            _, wy = view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET, 0, y)
-
-            if dtype == "del":
-                rect.init(indicator_x, wy, width, min(lh, 4))
-            else:
-                rect.init(indicator_x, wy, width, lh)
-            snapshot.append_color(color, rect)

@@ -15,6 +15,7 @@ from themes import subscribe_settings_change
 from .line_number_fold_renderer import (
     BreakpointGutterRenderer,
     FoldChevronRenderer,
+    GitDiffGutterRenderer,
     LineNumberRenderer,
 )
 
@@ -126,14 +127,16 @@ class FoldManager:
         # Schedule initial fold region computation (buffer is already loaded)
         GLib.timeout_add(200, self._recompute_regions)
 
-        # Insert 3 gutter renderers: breakpoints | line numbers | fold chevrons
+        # Insert 4 gutter renderers: breakpoints | line numbers | git markers | fold chevrons
         gutter = view.get_gutter(Gtk.TextWindowType.LEFT)
         self._bp_renderer = BreakpointGutterRenderer(view)
         self._gutter_renderer = LineNumberRenderer(view, self)
+        self._git_diff_renderer = GitDiffGutterRenderer(self)
         self._chevron_renderer = FoldChevronRenderer(view, self)
         gutter.insert(self._bp_renderer, 0)
         gutter.insert(self._gutter_renderer, 1)
-        gutter.insert(self._chevron_renderer, 2)
+        gutter.insert(self._git_diff_renderer, 2)
+        gutter.insert(self._chevron_renderer, 3)
 
         # Respect editor.show_line_numbers setting (initial + live changes)
         editor_settings = get_setting("editor", {})
@@ -142,7 +145,7 @@ class FoldManager:
         subscribe_settings_change(self._on_settings_change)
 
     def _set_gutter_visible(self, show: bool):
-        for r in (self._bp_renderer, self._gutter_renderer, self._chevron_renderer):
+        for r in (self._bp_renderer, self._gutter_renderer, self._git_diff_renderer, self._chevron_renderer):
             if r:
                 r.set_visible(show)
 

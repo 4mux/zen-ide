@@ -127,8 +127,8 @@ def _generate_style_scheme(theme) -> str:
   <style name="typescript:global-augmentation" foreground="{theme.syntax_keyword}"/>
 
   <!-- Python-specific overrides (class-name maps to def:function by default) -->
-  <style name="python:special-variable" foreground="{theme.syntax_keyword}" italic="true"/>
-  <style name="python3:special-variable" foreground="{theme.syntax_keyword}" italic="true"/>
+  <style name="python:special-variable" foreground="{theme.syntax_keyword}"/>
+  <style name="python3:special-variable" foreground="{theme.syntax_keyword}"/>
   <style name="python:class-name" foreground="{theme.syntax_class}"/>
   <style name="python3:class-name" foreground="{theme.syntax_class}"/>
   <style name="python:function-name" foreground="{theme.syntax_function}"/>

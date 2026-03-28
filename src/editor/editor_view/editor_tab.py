@@ -80,6 +80,10 @@ class EditorTab(EditorTabInputMixin, EditorTabHoverMixin, EditorTabThemeMixin, E
         self._fold_manager = FoldManager(self.view, self._ts_cache)
         self.view._fold_manager = self._fold_manager
 
+        # Wire git diff data into the gutter renderer
+        if self._fold_manager._git_diff_renderer:
+            self._gutter_diff._gutter_renderer = self._fold_manager._git_diff_renderer
+
         # Wire breakpoint manager into the breakpoint gutter renderer
         if self._fold_manager._bp_renderer:
             self._fold_manager._bp_renderer.set_breakpoint_source(bp_mgr)

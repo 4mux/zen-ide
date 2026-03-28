@@ -219,9 +219,6 @@ class ZenSourceView(ZenSourceViewCursorMixin, ZenSourceViewGuttersMixin, GtkSour
         vis_end, _ = self.get_line_at_y(visible.y + visible.height)
         vis_range = (vis_start.get_line(), vis_end.get_line())
 
-        if self._gutter_diff_renderer and self._gutter_diff_renderer._diff_lines:
-            self._gutter_diff_renderer.draw(snapshot, vis_range)
-
         if self._breakpoint_renderer and self._breakpoint_renderer.has_content:
             self._breakpoint_renderer.draw(snapshot, vis_range, fold_unsafe)
 
