@@ -1,7 +1,8 @@
-"""Debug Configuration — launch configs for Python, C, and C++.
+"""Debug Configuration — launch configs for Python, C, C++, and JS/TS.
 
 Loads launch configurations from .zen/launch.json and provides
-zero-config debugging for Python files (bdb) and C/C++ files (GDB).
+zero-config debugging for Python files (bdb), C/C++ files (GDB),
+and JavaScript/TypeScript files (Node.js V8 Inspector).
 """
 
 import json
@@ -10,6 +11,7 @@ from dataclasses import dataclass, field
 
 _PYTHON_EXTS = {".py"}
 _C_CPP_EXTS = {".c", ".cpp", ".cc", ".cxx", ".c++", ".h", ".hpp"}
+_JS_TS_EXTS = {".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx"}
 
 
 @dataclass
@@ -37,6 +39,8 @@ def _detect_type(file_path: str) -> str | None:
         return "python"
     if ext in _C_CPP_EXTS:
         return "cppdbg"
+    if ext in _JS_TS_EXTS:
+        return "node"
     return None
 
 
@@ -56,6 +60,14 @@ def create_default_config(file_path: str, workspace_folders: list[str] | None = 
         return DebugConfig(
             name=f"Python: {basename}",
             _type="python",
+            program=file_path,
+            cwd=cwd,
+        )
+
+    if debug_type == "node":
+        return DebugConfig(
+            name=f"Node: {basename}",
+            _type="node",
             program=file_path,
             cwd=cwd,
         )
@@ -87,7 +99,7 @@ def substitute_variables(value: str, file_path: str = "", workspace_folder: str 
     return result
 
 
-_SUPPORTED_TYPES = {"python", "cppdbg"}
+_SUPPORTED_TYPES = {"python", "cppdbg", "node"}
 
 
 def load_launch_configs(workspace_folder: str) -> list[DebugConfig]:

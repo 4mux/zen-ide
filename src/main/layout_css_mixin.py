@@ -410,7 +410,7 @@ class LayoutCssMixin:
                 background-color: {theme.panel_bg};
                 color: {theme.fg_color};
                 font-family: '{font_family}';
-                font-size: 10pt;
+                font-size: 9pt;
             }}
             .debug-toolbar {{
                 background-color: {theme.panel_bg};
@@ -421,14 +421,14 @@ class LayoutCssMixin:
             }}
             .debug-status {{
                 color: {theme.fg_dim};
-                font-size: 10pt;
+                font-size: 9pt;
             }}
             /* Call stack */
             .debug-stack-list {{
                 background-color: {theme.panel_bg};
                 color: {theme.fg_color};
                 font-family: '{font_family}';
-                font-size: 10pt;
+                font-size: 9pt;
             }}
             .debug-stack-list row {{
                 background-color: transparent;
@@ -447,32 +447,14 @@ class LayoutCssMixin:
             .debug-panel .dim-label {{
                 color: {theme.fg_dim};
                 font-family: '{font_family}';
-                font-size: 10pt;
-            }}
-            /* Variables tree */
-            .debug-var-tree {{
-                background-color: {theme.panel_bg};
-                color: {theme.fg_color};
-                font-family: '{font_family}';
-                font-size: 10pt;
-            }}
-            .debug-var-tree > header > button,
-            .debug-var-tree header button {{
-                background-color: {theme.panel_bg};
-                color: {theme.fg_dim};
-                border-bottom: 1px solid {theme.border_color};
-                font-family: '{font_family}';
-                font-size: 10pt;
-            }}
-            .debug-var-tree .cell {{
-                color: {theme.fg_color};
+                font-size: 9pt;
             }}
             /* Breakpoints list */
             .debug-bp-list {{
                 background-color: {theme.panel_bg};
                 color: {theme.fg_color};
                 font-family: '{font_family}';
-                font-size: 10pt;
+                font-size: 9pt;
             }}
             .debug-bp-list row {{
                 background-color: transparent;
@@ -487,7 +469,7 @@ class LayoutCssMixin:
                 background-color: {theme.panel_bg};
                 color: {theme.fg_color};
                 font-family: '{font_family}';
-                font-size: 10pt;
+                font-size: 9pt;
             }}
             .debug-console-output text {{
                 background-color: {theme.panel_bg};
@@ -496,7 +478,7 @@ class LayoutCssMixin:
             .debug-console-prompt {{
                 color: {theme.accent_color};
                 font-family: '{font_family}';
-                font-size: 10pt;
+                font-size: 9pt;
             }}
             .debug-console-input {{
                 background-color: {theme.main_bg};
@@ -504,7 +486,7 @@ class LayoutCssMixin:
                 border: 1px solid {theme.border_color};
                 border-radius: 4px;
                 font-family: '{font_family}';
-                font-size: 10pt;
+                font-size: 9pt;
             }}
             .debug-console-input:focus-within {{
                 border-color: {theme.accent_color};

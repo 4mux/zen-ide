@@ -27,6 +27,7 @@
 - 🔍 **Search** — Quick Open (`Cmd+P`), Global Search (`Cmd+Shift+F`), Go to Definition (`Cmd+Click`)
 - 👁️ **File Previews** — Markdown, HTML, OpenAPI/Swagger, images, hex viewer
 - 🔀 **Git** — Gutter diff markers, side-by-side diff view, commit history navigation, inline revert
+- 🐛 **Debugger** — Built-in Python (bdb) and C/C++ (GDB) debugging with breakpoints, step controls, variable inspection, call stack, and expression evaluation — zero config needed
 - 🤖 **AI Chat** — Integrated AI Terminal running `claude` or `copilot` CLI with multi-tab sessions, plus inline ghost text completions
 - 💻 **Terminal** — VTE with 256-color support, file path linking, shell aliases, workspace folder picker
 - 📝 **Dev Pad** (`Cmd+.`) — Activity tracking, notes, quick resume links

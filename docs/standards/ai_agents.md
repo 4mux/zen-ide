@@ -1,7 +1,7 @@
 # AI Agent Rules
 
 **Created_at:** 2026-02-15  
-**Updated_at:** 2026-03-17  
+**Updated_at:** 2026-03-29  
 **Status:** Active  
 **Goal:** Define hard restrictions and best practices for AI agents operating within Zen IDE  
 **Scope:** All AI agents (Copilot, Claude, or any other), `src/ai/`  
@@ -62,6 +62,20 @@ Specifically:
 - **No personal identifiers** — never include usernames, email addresses, or machine hostnames in docs or code
 
 If an example requires a path, use a generic placeholder like `~/project/` or a relative path from the repo root. This keeps the repository portable, professional, and free of accidental data leaks.
+
+## Required Reading
+
+Before modifying code, agents must read the relevant standards in `docs/standards/`:
+
+| Standard | When |
+|----------|------|
+| `shared_ui_components.md` | Any UI work — check shared components before building new ones |
+| `code_reusability.md` | Any new helper/utility — check `src/shared/` first |
+| `rendering.md` | Custom drawing — use GtkSnapshot, not cairo |
+| `popups.md` | Dialogs — extend NvimPopup |
+| `icons.md` | Adding icons |
+| `centralization.md` | Adding singletons or managers |
+| `startup_performance.md` | Touching import chains or app init |
 
 ## No Broken Tests
 

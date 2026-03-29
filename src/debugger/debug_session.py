@@ -95,6 +95,10 @@ class DebugSession:
             from .gdb_debugger import GdbClient
 
             self._client = GdbClient(self._on_event)
+        elif self._config.type == "node":
+            from .node_debugger import NodeClient
+
+            self._client = NodeClient(self._on_event)
         else:
             from .bdb_debugger import BdbClient
 

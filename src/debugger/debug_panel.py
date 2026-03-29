@@ -6,15 +6,142 @@ and debug console. Registered via SplitPanelManager.
 
 import os
 
-from gi.repository import Gdk, Gtk, Pango
+from gi.repository import Gdk, Graphene, Gtk, Pango
 
 from icons import IconsManager
 from shared.ui import ZenButton
+from shared.ui.zen_tree import ZenTree, ZenTreeItem
+from shared.utils import hex_to_rgba, tuple_to_gdk_rgba
 from themes import get_theme
 
 from .breakpoint_manager import Breakpoint, get_breakpoint_manager
 from .debug_console import DebugConsole
 from .debug_session import DebugSession, SessionState
+
+
+class _DebugVarTree(ZenTree):
+    """ZenTree subclass for debug variable inspection."""
+
+    def __init__(self, session_getter):
+        super().__init__(font_context="editor")
+        self._session_getter = session_getter
+
+    def refresh(self, session):
+        """Rebuild the variable tree from session scopes."""
+        if not session or session.state != SessionState.STOPPED:
+            self.set_roots([])
+            return
+
+        roots = []
+        scopes = session.get_scopes()
+        for i, scope in enumerate(scopes):
+            scope_item = ZenTreeItem(
+                name=scope.name,
+                is_expandable=scope.variables_reference > 0,
+                is_last=(i == len(scopes) - 1),
+                data={"ref": scope.variables_reference, "loaded": False},
+            )
+            # Pre-load non-expensive scopes
+            if not scope.expensive and scope.variables_reference:
+                self._load_scope_vars(session, scope_item)
+            roots.append(scope_item)
+        self.set_roots(roots)
+
+    def _load_scope_vars(self, session, parent_item):
+        """Load variables into a scope/variable item."""
+        ref = parent_item.data.get("ref", 0)
+        if ref <= 0:
+            return
+        variables = session.get_variables(ref)
+        for i, var in enumerate(variables):
+            child = ZenTreeItem(
+                name=var.name,
+                is_expandable=var.variables_reference > 0,
+                depth=parent_item.depth + 1,
+                parent=parent_item,
+                is_last=(i == len(variables) - 1),
+                data={
+                    "value": var.value,
+                    "type": var.type,
+                    "ref": var.variables_reference,
+                    "loaded": False,
+                },
+            )
+            parent_item.children.append(child)
+        parent_item.data["loaded"] = True
+
+    def _load_item_children(self, item):
+        """Lazy-load child variables when expanding."""
+        if item.data.get("loaded"):
+            return
+        session = self._session_getter()
+        if not session or session.state != SessionState.STOPPED:
+            return
+        self._load_scope_vars(session, item)
+
+    def _draw_item_row(self, snapshot, layout, item, y, width):
+        """Draw variable row: chevron + name: value."""
+        point = Graphene.Point()
+        text_height = self._cached_text_height
+        text_y = y + (self.row_height - text_height) / 2
+        text_ink_center_y = text_y + self._cached_text_ink_center
+        icon_y = text_ink_center_y - self._cached_icon_ink_center
+
+        x = self.LEFT_PADDING + item.depth * self.INDENT_WIDTH
+
+        # Chevron
+        layout.set_font_description(self.icon_font_desc)
+        if self._is_item_expandable(item):
+            chevron = self.chevron_expanded if item.expanded else self.chevron_collapsed
+            layout.set_text(chevron, -1)
+            snapshot.save()
+            point.init(x, icon_y)
+            snapshot.translate(point)
+            snapshot.append_layout(layout, tuple_to_gdk_rgba(self.chevron_color))
+            snapshot.restore()
+        x += self.INDENT_WIDTH
+
+        layout.set_font_description(self.text_font_desc)
+
+        data = getattr(item, "data", None) or {}
+        value = data.get("value", "")
+
+        if value:
+            # Draw name
+            layout.set_text(item.name, -1)
+            _, logical = layout.get_pixel_extents()
+            name_width = logical.width
+
+            snapshot.save()
+            point.init(x, text_y)
+            snapshot.translate(point)
+            snapshot.append_layout(layout, tuple_to_gdk_rgba(self.fg_color))
+            snapshot.restore()
+
+            # Draw ": value" in dimmer color
+            val_display = value
+            if len(val_display) > 100:
+                val_display = val_display[:97] + "\u2026"
+            layout.set_text(f": {val_display}", -1)
+            dim = (
+                self.fg_color[0] * 0.6,
+                self.fg_color[1] * 0.6,
+                self.fg_color[2] * 0.6,
+                self.fg_color[3],
+            )
+            snapshot.save()
+            point.init(x + name_width, text_y)
+            snapshot.translate(point)
+            snapshot.append_layout(layout, tuple_to_gdk_rgba(dim))
+            snapshot.restore()
+        else:
+            # Scope header (no value)
+            layout.set_text(item.name, -1)
+            snapshot.save()
+            point.init(x, text_y)
+            snapshot.translate(point)
+            snapshot.append_layout(layout, tuple_to_gdk_rgba(self.fg_color))
+            snapshot.restore()
 
 
 class DebugPanel(Gtk.Box):
@@ -34,7 +161,7 @@ class DebugPanel(Gtk.Box):
 
         font_settings = get_font_settings("editor")
         font_family = font_settings["family"]
-        self._font_desc = Pango.FontDescription.from_string(f"{font_family} 10")
+        self._font_desc = Pango.FontDescription.from_string(f"{font_family} 9")
         self._font_attrs = Pango.AttrList.new()
         self._font_attrs.insert(Pango.attr_font_desc_new(self._font_desc))
 
@@ -60,47 +187,11 @@ class DebugPanel(Gtk.Box):
         self._stack_list.add_css_class("debug-stack-list")
         stack_scroll.set_child(self._stack_list)
 
-        # Variables section
+        # Variables section — using ZenTree
         content_box.append(self._create_section_label("VARIABLES"))
-        var_scroll = Gtk.ScrolledWindow()
-        var_scroll.set_vexpand(True)
-        var_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        content_box.append(var_scroll)
-
-        self._var_tree = Gtk.TreeView()
-        self._var_tree.set_headers_visible(True)
-        self._var_tree.add_css_class("debug-var-tree")
-
-        # Columns: Name, Value, Type
-        for col_name, col_idx, min_w in [("Name", 0, 80), ("Value", 1, 100), ("Type", 2, 0)]:
-            renderer = Gtk.CellRendererText()
-            renderer.set_property("font-desc", self._font_desc)
-            col = Gtk.TreeViewColumn(col_name, renderer, text=col_idx)
-            col.set_resizable(True)
-            if min_w:
-                col.set_min_width(min_w)
-            self._var_tree.append_column(col)
-
-        # Force font on TreeView column headers via inline CSS
-        css = Gtk.CssProvider()
-        css.load_from_string(
-            f"treeview header button {{ font-family: '{font_family}'; font-size: 10pt; }}"
-        )
-        self._var_tree.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
-
-        # TreeStore: name, value, type, variables_reference (hidden)
-        self._var_store = Gtk.TreeStore(str, str, str, int)
-        self._var_tree.set_model(self._var_store)
-        self._var_tree.connect("row-expanded", self._on_variable_expanded)
-        self._var_tree.set_activate_on_single_click(True)
-        self._var_tree.connect("row-activated", self._on_var_row_activated)
-
-        # Key controller so Left/Right expand/collapse instead of scrolling
-        key_ctrl = Gtk.EventControllerKey.new()
-        key_ctrl.connect("key-pressed", self._on_var_key_pressed)
-        self._var_tree.add_controller(key_ctrl)
-
-        var_scroll.set_child(self._var_tree)
+        self._var_tree = _DebugVarTree(session_getter=lambda: self._session)
+        self._var_tree.set_vexpand(True)
+        content_box.append(self._var_tree)
 
         # Breakpoints section
         content_box.append(self._create_section_label("BREAKPOINTS"))
@@ -283,81 +374,7 @@ class DebugPanel(Gtk.Box):
 
     def _refresh_variables(self) -> None:
         """Refresh the variables tree from the current session."""
-        self._var_store.clear()
-        if not self._session or self._session.state != SessionState.STOPPED:
-            return
-
-        scopes = self._session.get_scopes()
-        for scope in scopes:
-            scope_iter = self._var_store.append(None, [scope.name, "", "", scope.variables_reference])
-            # Load variables for non-expensive scopes
-            if not scope.expensive and scope.variables_reference:
-                variables = self._session.get_variables(scope.variables_reference)
-                for var in variables:
-                    var_iter = self._var_store.append(scope_iter, [var.name, var.value, var.type, var.variables_reference])
-                    # Add placeholder for expandable variables
-                    if var.variables_reference > 0:
-                        self._var_store.append(var_iter, ["...", "", "", 0])
-
-    def _on_variable_expanded(self, tree_view, tree_iter, tree_path) -> None:
-        """Lazy-load child variables when a tree node is expanded."""
-        if not self._session:
-            return
-        ref = self._var_store.get_value(tree_iter, 3)
-        if ref <= 0:
-            return
-
-        # Check if first child is placeholder
-        child = self._var_store.iter_children(tree_iter)
-        if child and self._var_store.get_value(child, 0) == "...":
-            # Remove placeholder
-            self._var_store.remove(child)
-            # Load real children
-            variables = self._session.get_variables(ref)
-            for var in variables:
-                var_iter = self._var_store.append(tree_iter, [var.name, var.value, var.type, var.variables_reference])
-                if var.variables_reference > 0:
-                    self._var_store.append(var_iter, ["...", "", "", 0])
-
-    def _on_var_row_activated(self, tree_view, path, column) -> None:
-        """Toggle expand/collapse on double-click (row-activated)."""
-        if tree_view.row_expanded(path):
-            tree_view.collapse_row(path)
-        else:
-            tree_view.expand_row(path, False)
-
-    def _on_var_key_pressed(self, controller, keyval, keycode, state) -> bool:
-        """Handle Left/Right keys for expand/collapse instead of horizontal scroll."""
-        sel = self._var_tree.get_selection()
-        model, tree_iter = sel.get_selected()
-        if tree_iter is None:
-            return False
-
-        path = model.get_path(tree_iter)
-
-        if keyval == Gdk.KEY_Right:
-            if not self._var_tree.row_expanded(path):
-                self._var_tree.expand_row(path, False)
-            else:
-                # Move to first child
-                child = model.iter_children(tree_iter)
-                if child:
-                    child_path = model.get_path(child)
-                    self._var_tree.set_cursor(child_path, None, False)
-            return True
-
-        if keyval == Gdk.KEY_Left:
-            if self._var_tree.row_expanded(path):
-                self._var_tree.collapse_row(path)
-            else:
-                # Move to parent
-                parent = model.iter_parent(tree_iter)
-                if parent:
-                    parent_path = model.get_path(parent)
-                    self._var_tree.set_cursor(parent_path, None, False)
-            return True
-
-        return False
+        self._var_tree.refresh(self._session)
 
     # -- Breakpoints list --
 

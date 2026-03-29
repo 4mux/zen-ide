@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
+      exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Extract version
+        id: ver
+        run: |
+          VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag already exists
+        id: check
+        run: |
+          if git ls-remote --tags origin "refs/tags/v${{ steps.ver.outputs.version }}" | grep -q .; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-linux:
+    needs: version
+    if: needs.version.outputs.exists == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install system dependencies
+        run: make install-system-deps
+
+      - name: Install Python dependencies
+        run: |
+          make install-py
+          make install-build
+
+      - name: Build AppImage
+        run: bash tools/build_appimage.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: dist/Zen_IDE-*.AppImage
+
+  build-macos:
+    needs: version
+    if: needs.version.outputs.exists == 'false'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install system dependencies
+        run: make install-system-deps
+
+      - name: Install Python dependencies
+        run: |
+          make install-py
+          make install-build
+
+      - name: Build macOS app
+        run: |
+          make build-launcher
+          uv run pyinstaller "Zen IDE.spec" --noconfirm
+
+      - name: Strip and sign
+        run: |
+          APP_BUNDLE="dist/Zen IDE.app"
+          find "$APP_BUNDLE/Contents/Frameworks" -type f \( -name '*.dylib' -o -name '*.so' \) \
+            -exec strip -x {} 2>/dev/null \;
+          find "$APP_BUNDLE/Contents/Resources" -type f -name '*.so' \
+            -exec strip -x {} 2>/dev/null \;
+          strip -x "$APP_BUNDLE/Contents/Frameworks/Python.framework/Versions/3.14/Python" 2>/dev/null || true
+          .venv/bin/python3 tools/trim_icu_data.py "$APP_BUNDLE"
+          find "$APP_BUNDLE" -name '*.dylib' -o -name '*.so' -o -name 'Python' | \
+            xargs -I{} codesign --force --sign - {} 2>/dev/null || true
+          codesign --force --deep --sign - --entitlements entitlements.plist "$APP_BUNDLE"
+
+      - name: Create tar.gz
+        run: |
+          VERSION=${{ needs.version.outputs.version }}
+          cd dist
+          tar -czf "Zen_IDE-${VERSION}-macos.tar.gz" "Zen IDE.app"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: dist/Zen_IDE-*-macos.tar.gz
+
+  release:
+    needs: [version, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          VERSION="${{ needs.version.outputs.version }}"
+
+          gh release create "$TAG" \
+            --title "Zen IDE $VERSION" \
+            --generate-notes \
+            artifacts/linux-appimage/* \
+            artifacts/macos-app/*

@@ -27,6 +27,7 @@ Welcome to the Zen IDE wiki — the complete user manual covering every feature,
 - [Inline Code Completions](Inline-Completions)
 
 ### Tools & Panels
+- [Debugger](Debugger)
 - [Dev Pad — Activity Tracker](Dev-Pad)
 - [Sketch Pad — ASCII Diagrams](Sketch-Pad)
 - [Diff View](Diff-View)

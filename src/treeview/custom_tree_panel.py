@@ -1,88 +1,56 @@
 """
-CustomTreePanel — core tree panel with GtkSnapshot drawing, scrolling, and data management.
-Composes behavior from renderer, drag, inline-edit, and keyboard mixins.
+CustomTreePanel — file explorer tree panel built on ZenTree.
+
+Extends the shared ZenTree with file icons, git status, drag-and-drop,
+inline editing, and filesystem data loading.
 """
 
 import sys
 from typing import Callable, Dict, List, Optional, Set
 
-from gi.repository import Gdk, GLib, Gtk, Pango
+from gi.repository import Gdk, GLib, Graphene, Gsk, Gtk, Pango
 
-from fonts import get_font_settings
-from icons import IconsManager, get_icon_font_name
+from icons import IconsManager
 from shared.settings import get_setting
-from shared.utils import hex_to_rgba
-from themes import (
-    ThemeAwareMixin,
-    get_theme,
-    subscribe_settings_change,
-)
-from treeview.tree_canvas import TreeCanvas
+from shared.ui.zen_tree import ZenTree
+from shared.utils import hex_to_rgba, tuple_to_gdk_rgba
+from themes import get_theme
 from treeview.tree_icons import (
-    CHEVRON_COLLAPSED,
     CHEVRON_COLOR,
-    CHEVRON_EXPANDED,
+    ICON_COLORS,
+    get_git_status_colors,
     get_icon_set,
 )
 from treeview.tree_item import TreeItem
 from treeview.tree_panel_data_mixin import TreePanelDataMixin
 from treeview.tree_panel_drag_mixin import TreePanelDragMixin
 from treeview.tree_panel_inline_edit_mixin import TreePanelInlineEditMixin
-from treeview.tree_panel_keyboard_mixin import TreePanelKeyboardMixin
-from treeview.tree_panel_renderer_mixin import TreePanelRendererMixin
-from treeview.tree_panel_selection_mixin import TreePanelSelectionMixin
 
 _PRIMARY_MOD = Gdk.ModifierType.META_MASK if sys.platform == "darwin" else Gdk.ModifierType.CONTROL_MASK
 
 
 class CustomTreePanel(
-    ThemeAwareMixin,
-    TreePanelRendererMixin,
     TreePanelDragMixin,
     TreePanelInlineEditMixin,
-    TreePanelKeyboardMixin,
-    TreePanelSelectionMixin,
     TreePanelDataMixin,
-    Gtk.ScrolledWindow,
+    ZenTree,
 ):
-    """Custom drawn tree control with neovim-style indent guides."""
-
-    DEFAULT_ROW_HEIGHT = 22
-    INDENT_WIDTH = 16
-    LEFT_PADDING = 10
+    """Custom drawn file explorer tree control."""
 
     def __init__(self, tree_view):
-        super().__init__()
         self.tree_view = tree_view
-        self.items: List[TreeItem] = []  # Flattened visible items
-        self.roots: List[TreeItem] = []  # Root tree items
-        self.selected_item: Optional[TreeItem] = None
-        self.selected_items: Set[TreeItem] = set()
-        self.hover_item: Optional[TreeItem] = None
-        self._selection_anchor_item: Optional[TreeItem] = None
+        super().__init__(font_context="explorer")
 
         # Git status tracking
         self._git_modified_files: Set[str] = set()
         self._git_status_map: Dict[str, str] = {}
         self._modified_dirs: Set[str] = set()
 
-        # Theme colors (will be set in _setup_colors)
-        self._setup_colors()
+        # Additional colors (git, ignored)
+        self._setup_extra_colors()
 
-        # Row height (will be calculated in _setup_fonts)
-        self.row_height = self.DEFAULT_ROW_HEIGHT
-        self._pango_fonts_warm = False
-
-        # Custom widget for GtkSnapshot rendering (replaces Gtk.DrawingArea)
-        self.drawing_area = TreeCanvas(panel=self)
-
-        # Font setup (needs drawing_area for widget Pango context resolution)
-        self._setup_fonts()
-
-        # Icon set
+        # Icon setup
         self._setup_icons()
-        self.drawing_area.set_can_focus(True)
-        self.drawing_area.set_focusable(True)
 
         # Inline editing state
         self._inline_entry: Optional[Gtk.Entry] = None
@@ -90,206 +58,32 @@ class CustomTreePanel(
         self._inline_on_confirm: Optional[Callable[[str], None]] = None
         self._inline_on_cancel: Optional[Callable[[], None]] = None
 
-        # Use Overlay to allow Entry to be placed on top of DrawingArea
-        self._overlay = Gtk.Overlay()
-        self._overlay.set_child(self.drawing_area)
-
-        # Wrap in a viewport for scrolling
-        self.set_child(self._overlay)
-        self.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-
-        # Event controllers
-        self._setup_event_controllers()
-
-        # Animation state
-        self._scroll_animation_id: Optional[int] = None
-        self._ensure_visible_gen: int = 0  # generation counter to invalidate stale retries
-
-        # Scroll state for hover suppression
-        self._is_scrolling = False
-        self._scroll_end_timer: Optional[int] = None
-
-        # Coalesced redraw flag
-        self._redraw_pending = False
-
-        # Custom cursor blink for selection highlight
-        from shared.cursor_blinker import CursorBlinker
-        from shared.settings import get_setting
-
-        self._cursor_blinker = CursorBlinker(self._request_redraw)
-        self._cursor_blinker.set_enabled(get_setting("cursor_blink", True))
-
-        # Focus tracking for cursor blink
-        focus_ctrl = Gtk.EventControllerFocus()
-        focus_ctrl.connect("enter", lambda c: self._cursor_blinker.on_focus_in())
-        focus_ctrl.connect("leave", lambda c: self._cursor_blinker.on_focus_out())
-        self.drawing_area.add_controller(focus_ctrl)
-
         # Drag-and-drop state
         self._drag_source_item: Optional[TreeItem] = None
         self._drop_target_item: Optional[TreeItem] = None
-        self._drop_position: Optional[str] = None  # "into", "before", "after"
+        self._drop_position: Optional[str] = None
         self._drag_start_y: float = 0.0
-        self._drag_activated: bool = False  # True once threshold exceeded
-        self._drag_start_scroll_y: float = 0.0  # Scroll pos at drag begin
+        self._drag_activated: bool = False
+        self._drag_start_scroll_y: float = 0.0
 
-        # Compiled gitignore pattern cache: workspace_root -> (patterns_set, compiled_globs)
+        # Gitignore pattern cache
         self._pattern_cache: Dict[Optional[str], tuple] = {}
 
-        # Connect to scroll adjustment to redraw when scrollbar is dragged
-        self.connect("notify::vadjustment", self._on_vadjustment_changed)
-        GLib.idle_add(self._connect_vadjustment)
+        # Additional event controllers (right-click, drag)
+        self._setup_extra_controllers()
 
-        # Subscribe to theme/settings changes
-        self._subscribe_theme()
-        subscribe_settings_change(self._on_settings_change)
+    # ── Setup ──────────────────────────────────────────────────
 
-    def _connect_vadjustment(self):
-        """Connect to the vertical adjustment's value-changed signal."""
-        vadj = self.get_vadjustment()
-        if vadj:
-            vadj.connect("value-changed", self._on_scroll_value_changed)
-        return False  # Don't repeat idle callback
-
-    def _on_vadjustment_changed(self, widget, pspec):
-        """Handle when the vertical adjustment property changes."""
-        vadj = self.get_vadjustment()
-        if vadj:
-            vadj.connect("value-changed", self._on_scroll_value_changed)
-
-    def _on_scroll_value_changed(self, adjustment):
-        """Handle scrollbar/adjustment value changes - redraw the tree."""
-        self._is_scrolling = True
-        # Cancel any active drag — scroll invalidates drag coordinates
-        if self._drag_source_item:
-            self._cleanup_drag_state()
-        if self.hover_item:
-            self.hover_item = None
-
-        # Cancel any existing scroll-end timer
-        if self._scroll_end_timer is not None:
-            GLib.source_remove(self._scroll_end_timer)
-
-        self._scroll_end_timer = GLib.timeout_add(150, self._on_scroll_end)
-        self.drawing_area.queue_draw()
-
-    def _on_scroll_end(self):
-        """Called after scrolling stops."""
-        self._is_scrolling = False
-        self._scroll_end_timer = None
-        return False  # Don't repeat
-
-    def _request_redraw(self):
-        """Coalesce multiple redraws into a single frame."""
-        if not self._redraw_pending:
-            self._redraw_pending = True
-            GLib.idle_add(self._do_coalesced_redraw)
-
-    def _do_coalesced_redraw(self):
-        """Execute the coalesced redraw."""
-        self._redraw_pending = False
-        self.drawing_area.queue_draw()
-        return False
-
-    def _setup_colors(self):
-        """Setup colors from theme."""
+    def _setup_extra_colors(self):
+        """Setup explorer-specific colors (git status, ignored)."""
         theme = get_theme()
-
-        self.bg_color = hex_to_rgba(theme.tree_bg)
-        self.fg_color = hex_to_rgba(theme.tree_fg)
-        self.selected_bg = hex_to_rgba(theme.tree_selected_bg)
-        self.hover_bg = hex_to_rgba(theme.hover_bg)
-        self.guide_color = hex_to_rgba(theme.indent_guide)
-        self.chevron_color = hex_to_rgba(CHEVRON_COLOR)
         self.modified_color = hex_to_rgba(theme.tree_modified_fg)
         self.ignored_color = hex_to_rgba(theme.tree_ignored_fg or theme.fg_dim)
 
-    @staticmethod
-    def _get_display_dpi():
-        """Get display DPI for font size estimation."""
-        import sys
-
-        try:
-            settings = Gtk.Settings.get_default()
-            if settings:
-                xft_dpi = settings.get_property("gtk-xft-dpi")
-                if xft_dpi > 0:
-                    return xft_dpi / 1024.0
-        except Exception:
-            pass
-        return 72.0 if sys.platform == "darwin" else 96.0
-
-    def _setup_fonts(self):
-        """Setup fonts for rendering."""
-        # Get display DPI for font size estimation
-        self._pango_dpi = self._get_display_dpi()
-
-        nerd_font = get_icon_font_name()
-
-        # Get font from settings
-        font_settings = get_font_settings("explorer")
-        family = font_settings["family"]
-        size = font_settings.get("size", 13)
-        weight = font_settings.get("weight", "normal")
-
-        # Text font
-        self.text_font_desc = Pango.FontDescription.from_string(f"{family} {size}")
-
-        from fonts import PANGO_WEIGHT_MAP
-
-        pango_weight = PANGO_WEIGHT_MAP.get(weight, Pango.Weight.NORMAL)
-        self.text_font_desc.set_weight(pango_weight)
-
-        # Icon font - prefer user's font if it's a Nerd Font, else auto-detected
-        user_is_nerd = family and "nerd font" in family.lower()
-        icon_font = family if user_is_nerd else nerd_font
-
-        # For non-Propo Nerd Fonts, icons render small due to monospace constraints.
-        if icon_font and "nerd font" in icon_font.lower() and "propo" not in icon_font.lower():
-            propo_name = icon_font.replace(" Mono", "").rstrip() + " Propo"
-            if propo_name != icon_font:
-                font_map = self.drawing_area.get_pango_context().get_font_map()
-                available = {f.get_name() for f in font_map.list_families()}
-                if propo_name in available:
-                    icon_font = propo_name
-
-        if icon_font:
-            self.icon_font_desc = Pango.FontDescription.from_string(f"{icon_font} {size + 1}")
-        else:
-            self.icon_font_desc = Pango.FontDescription.from_string(f"{family} {size}")
-        self.chevron_expanded = CHEVRON_EXPANDED
-        self.chevron_collapsed = CHEVRON_COLLAPSED
-
-        # Calculate row height from actual font metrics + margins
-        self._calculate_row_height()
-
-        # Icon column width (fixed for alignment)
-        import sys
-
-        platform_pad = 5 if sys.platform == "linux" else 0
-        self._icon_column_width = int(size * 1.6) + platform_pad
-
-    def _calculate_row_height(self):
-        """Calculate row height from font size without Pango measurement.
-
-        Uses a mathematical estimate to avoid the ~14ms Pango first-time font
-        loading cost. The estimate matches Pango's output exactly at 72 DPI
-        (macOS) and is within 1-2px at other resolutions — invisible in a tree.
-        Pango warms up naturally on the first draw (after metrics are printed).
-        """
-        font_settings = get_font_settings("explorer")
-        size = font_settings.get("size", 13)
-        font_px = max(int(size * self._pango_dpi / 72), size)
-        line_spacing = get_setting("treeview.line_spacing", 10)
-        margin_top = line_spacing // 2
-        margin_bottom = line_spacing - margin_top
-        self.row_height = font_px + margin_top + margin_bottom
-        # Invalidate cached text/icon heights so renderer re-measures on next draw
-        self._cached_text_height = None
-        self._cached_icon_height = None
-
     def _setup_icons(self):
         """Setup icon mappings."""
+        from icons import get_icon_font_name
+
         file_icons, name_icons, folder_closed, folder_open = get_icon_set()
         self._icon_map = {
             "folder_closed": folder_closed,
@@ -299,144 +93,225 @@ class CustomTreePanel(
         self._icon_map.update({f"ext_{k}": v for k, v in file_icons.items()})
         self._icon_map.update({f"name_{k}": v for k, v in name_icons.items()})
 
-    def _setup_event_controllers(self):
-        """Setup event controllers for mouse and keyboard."""
-        # Click controller
-        click_ctrl = Gtk.GestureClick.new()
-        click_ctrl.connect("pressed", self._on_click)
-        click_ctrl.set_button(1)  # Left button
-        self.drawing_area.add_controller(click_ctrl)
+    def _setup_extra_controllers(self):
+        """Setup right-click and drag event controllers."""
+        # Right-click context menu
+        right_click = Gtk.GestureClick.new()
+        right_click.connect("pressed", self._on_right_click)
+        right_click.set_button(3)
+        self.drawing_area.add_controller(right_click)
 
-        # Right-click controller
-        right_click_ctrl = Gtk.GestureClick.new()
-        right_click_ctrl.connect("pressed", self._on_right_click)
-        right_click_ctrl.set_button(3)  # Right button
-        self.drawing_area.add_controller(right_click_ctrl)
-
-        # Motion controller for hover
-        motion_ctrl = Gtk.EventControllerMotion.new()
-        motion_ctrl.connect("motion", self._on_motion)
-        motion_ctrl.connect("leave", self._on_leave)
-        self.drawing_area.add_controller(motion_ctrl)
-
-        # Key controller
-        key_ctrl = Gtk.EventControllerKey.new()
-        key_ctrl.connect("key-pressed", self._on_key)
-        self.drawing_area.add_controller(key_ctrl)
-
-        # NOTE: We don't add a custom scroll controller here.
-        # The ScrolledWindow parent handles scrolling naturally, including
-        # kinetic/momentum scrolling on trackpads.
-
-        # Internal drag gesture for file reordering (avoids native DnD crash on macOS)
+        # Internal drag gesture for file reordering
         drag_gesture = Gtk.GestureDrag()
         drag_gesture.connect("drag-begin", self._on_gesture_drag_begin)
         drag_gesture.connect("drag-update", self._on_gesture_drag_update)
         drag_gesture.connect("drag-end", self._on_gesture_drag_end)
         self.drawing_area.add_controller(drag_gesture)
 
-        # External drop target for files dragged from outside the IDE
+        # External drop target for files from outside the IDE
         self._setup_external_drop_target()
 
+    # ── Theme & Settings overrides ─────────────────────────────
+
     def _on_theme_change(self, theme):
-        """Handle theme change."""
-        self._setup_colors()
-        self._request_redraw()
+        self._setup_extra_colors()
+        super()._on_theme_change(theme)
 
     def _on_settings_change(self, key, value):
-        """Handle settings change."""
-        if key == "fonts" or key == "explorer":
-            self._setup_fonts()
+        if key in ("fonts", "explorer"):
             self._setup_icons()
-            self._update_virtual_size()
-            self._request_redraw()
-        elif key == "treeview":
-            self._calculate_row_height()
-            self._update_virtual_size()
-            self._request_redraw()
+        super()._on_settings_change(key, value)
 
-    def _flatten_items(self):
-        """Flatten the tree into a list of visible items."""
-        self.items = []
+    # ── Scroll override (drag cleanup) ─────────────────────────
 
-        def traverse(item: TreeItem):
-            self.items.append(item)
-            if item.is_dir and item.expanded:
-                for child in item.children:
-                    traverse(child)
+    def _on_scroll_value_changed(self, adjustment):
+        # Cancel any active drag — scroll invalidates drag coordinates
+        if self._drag_source_item:
+            self._cleanup_drag_state()
+        super()._on_scroll_value_changed(adjustment)
 
-        for root in self.roots:
-            traverse(root)
+    # ── Rendering ──────────────────────────────────────────────
 
-        self._prune_selection_to_visible_items()
-        self._update_virtual_size()
+    def _on_snapshot(self, snapshot, width, height):
+        """Draw tree items plus drop indicator."""
+        super()._on_snapshot(snapshot, width, height)
+        # Drop indicator overlay
+        if self._drop_target_item is not None and self._drop_position:
+            self._draw_drop_indicator(snapshot, width)
 
-    def _flatten_and_redraw(self):
-        """Flatten tree and schedule a coalesced redraw."""
-        self._flatten_items()
-        self._request_redraw()
+    def _draw_item_row(self, snapshot, layout, item, y, width):
+        """Draw file explorer item: indent guides, chevron, icon, name, git badge."""
+        point = Graphene.Point()
+        text_height = self._cached_text_height
+        text_y = y + (self.row_height - text_height) / 2
+        text_ink_center_y = text_y + self._cached_text_ink_center
+        icon_y = text_ink_center_y - self._cached_icon_ink_center
 
-    def _update_virtual_size(self):
-        """Update the drawing area size for scrolling."""
-        height = max(len(self.items) * self.row_height, 100)
-        self.drawing_area.set_size_request(-1, height)
+        x = self.LEFT_PADDING
 
-    def _is_modified_dir(self, item: TreeItem) -> bool:
-        """Check if a directory contains modified files."""
-        if not item.is_dir:
-            return False
-        return str(item.path) in self._modified_dirs
+        # Indent guides
+        if item.depth > 0:
+            x = self._draw_indent_guides(snapshot, item, x, y)
 
-    def _get_item_at_y(self, y):
-        """Get the item at a given y coordinate."""
-        index = int(y / self.row_height)
-        if 0 <= index < len(self.items):
-            return self.items[index]
-        return None
+        # Set icon font for chevron and icon
+        layout.set_font_description(self.icon_font_desc)
 
-    def _on_click(self, gesture, n_press, x, y):
-        """Handle click."""
-        vadj = self.get_vadjustment()
-        saved_scroll = vadj.get_value() if vadj else 0
-        self.drawing_area.grab_focus()
-        if vadj:
-            vadj.set_value(saved_scroll)
-        # Cancel any running scroll animation
-        if self._scroll_animation_id is not None:
-            GLib.source_remove(self._scroll_animation_id)
-            self._scroll_animation_id = None
-        # Invalidate any pending deferred _ensure_visible calls
-        self._ensure_visible_gen += 1
-        state = gesture.get_current_event_state()
-        is_range_select = bool(state & Gdk.ModifierType.SHIFT_MASK)
-        is_toggle_select = bool(state & _PRIMARY_MOD)
-        item = self._get_item_at_y(y)
-        if item:
-            if is_range_select:
-                self._select_range_to(item)
-            elif is_toggle_select:
-                self._toggle_item_selection(item)
+        # Chevron for directories
+        if item.is_dir:
+            chevron = self.chevron_expanded if item.expanded else self.chevron_collapsed
+            color = tuple_to_gdk_rgba(
+                self.ignored_color if item.git_status == "I" else self.chevron_color
+            )
+            layout.set_text(chevron, -1)
+            snapshot.save()
+            point.init(x, icon_y)
+            snapshot.translate(point)
+            snapshot.append_layout(layout, color)
+            snapshot.restore()
+        x += self.INDENT_WIDTH
+
+        # File/folder icon
+        icon_char, icon_color = self._get_icon_for_item(item)
+        color = tuple_to_gdk_rgba(
+            self.ignored_color if item.git_status == "I" else hex_to_rgba(icon_color)
+        )
+        layout.set_text(icon_char.strip(), -1)
+        snapshot.save()
+        point.init(x, icon_y)
+        snapshot.translate(point)
+        snapshot.append_layout(layout, color)
+        snapshot.restore()
+        x += self._icon_column_width
+
+        # Text color based on git status
+        if item.git_status == "M":
+            text_color = self.modified_color
+        elif item.git_status == "I":
+            text_color = self.ignored_color
+        elif item.git_status and item.git_status in get_git_status_colors():
+            text_color = hex_to_rgba(get_git_status_colors()[item.git_status])
+        elif self._is_modified_dir(item):
+            text_color = self.modified_color
+        else:
+            text_color = self.fg_color
+
+        # Name
+        layout.set_font_description(self.text_font_desc)
+        layout.set_text(item.name, -1)
+        snapshot.save()
+        point.init(x, text_y)
+        snapshot.translate(point)
+        snapshot.append_layout(layout, tuple_to_gdk_rgba(text_color))
+        snapshot.restore()
+
+        # Git status hint badge
+        if item.git_status and not item.is_dir and item.git_status != "I":
+            self._draw_git_badge(snapshot, layout, item, text_y, width)
+
+    def _draw_git_badge(self, snapshot, layout, item, text_y, width):
+        """Draw git status badge at the right edge of the row."""
+        hint_text = f"[{item.git_status}]"
+        layout.set_text(hint_text, -1)
+        _, logical_rect = layout.get_pixel_extents()
+        hint_width = logical_rect.width
+        hint_x = width - hint_width - 8
+
+        if item.git_status == "M":
+            hint_color = self.modified_color
+        else:
+            hint_color = hex_to_rgba(get_git_status_colors().get(item.git_status, "#808080"))
+
+        # Background pill
+        bg_color = (hint_color[0] * 0.25, hint_color[1] * 0.25, hint_color[2] * 0.25, 1.0)
+        pill_rect = Graphene.Rect()
+        pill_rect.init(hint_x - 4, text_y - 1, hint_width + 8, logical_rect.height + 2)
+        rounded = Gsk.RoundedRect()
+        rounded.init_from_rect(pill_rect, 3)
+        snapshot.push_rounded_clip(rounded)
+        snapshot.append_color(tuple_to_gdk_rgba(bg_color), pill_rect)
+        snapshot.pop()
+
+        # Hint text
+        point = Graphene.Point()
+        snapshot.save()
+        point.init(hint_x, text_y)
+        snapshot.translate(point)
+        snapshot.append_layout(layout, tuple_to_gdk_rgba(hint_color))
+        snapshot.restore()
+
+    def _get_icon_for_item(self, item):
+        """Get icon character and color for an item."""
+        if item.is_dir:
+            icon = self._icon_map.get("folder_open" if item.expanded else "folder_closed", "\U0001f4c1")
+            color = ICON_COLORS.get("folder", "#dcb67a")
+            return icon, color
+
+        # Check special names
+        name_key = f"name_{item.name}"
+        if name_key in self._icon_map:
+            icon = self._icon_map[name_key]
+            color = ICON_COLORS.get(item.name, ICON_COLORS["default"])
+            return icon, color
+
+        # Check extension
+        ext = item.path.suffix.lower()
+        ext_key = f"ext_{ext}"
+        if ext_key in self._icon_map:
+            icon = self._icon_map[ext_key]
+            color = ICON_COLORS.get(ext, ICON_COLORS["default"])
+            return icon, color
+
+        return self._icon_map.get("default", "\U0001f4c4"), ICON_COLORS["default"]
+
+    def _draw_drop_indicator(self, snapshot, width):
+        """Draw visual indicator showing where the item will be dropped."""
+        if not self._drop_target_item or not self._drop_position:
+            return
+        try:
+            index = self.items.index(self._drop_target_item)
+        except ValueError:
+            return
+
+        accent = hex_to_rgba(get_theme().accent_color)
+
+        if self._drop_position == "into":
+            y = index * self.row_height
+            rect = Graphene.Rect()
+
+            fill_color = (accent[0], accent[1], accent[2], 0.2)
+            rect.init(0, y, width, self.row_height)
+            snapshot.append_color(tuple_to_gdk_rgba(fill_color), rect)
+
+            border_rect = Graphene.Rect()
+            border_rect.init(0.5, y + 0.5, width - 1, self.row_height - 1)
+            rounded = Gsk.RoundedRect()
+            rounded.init_from_rect(border_rect, 0)
+            accent_rgba = tuple_to_gdk_rgba(accent)
+            snapshot.append_border(
+                rounded, [1, 1, 1, 1],
+                [accent_rgba, accent_rgba, accent_rgba, accent_rgba],
+            )
+        else:
+            if self._drop_position == "before":
+                line_y = index * self.row_height
             else:
-                self._select_single_item(item)
-            self._cursor_blinker.reset()
-            if is_range_select or is_toggle_select:
-                self._request_redraw()
-                return
-            # For files, ignore double-clicks to avoid opening twice.
-            # For directories, allow every press so rapid expand/collapse works.
-            if n_press > 1 and not item.is_dir:
-                self._request_redraw()
-                return
-            if item.is_dir:
-                self._toggle_expand(item)
-            else:
-                # Verify file still exists before opening (handles deleted files)
-                if not item.path.exists():
-                    self.tree_view.refresh()
-                    return
-                if self.tree_view.on_file_selected:
-                    self.tree_view.on_file_selected(str(item.path))
-            self._request_redraw()
+                line_y = (index + 1) * self.row_height
+            indent = self.LEFT_PADDING + self._drop_target_item.depth * self.INDENT_WIDTH
+            accent_rgba = tuple_to_gdk_rgba(accent)
+
+            builder = Gsk.PathBuilder.new()
+            builder.move_to(indent, line_y)
+            builder.line_to(width, line_y)
+            path = builder.to_path()
+            stroke = Gsk.Stroke.new(2.0)
+            snapshot.append_stroke(path, stroke, accent_rgba)
+
+            builder = Gsk.PathBuilder.new()
+            builder.add_circle(Graphene.Point().init(indent, line_y), 3)
+            path = builder.to_path()
+            snapshot.append_fill(path, Gsk.FillRule.WINDING, accent_rgba)
+
+    # ── Event overrides ────────────────────────────────────────
 
     def _on_right_click(self, gesture, n_press, x, y):
         """Handle right-click for context menu."""
@@ -450,36 +325,70 @@ class CustomTreePanel(
             if hasattr(self.tree_view, "_show_context_menu"):
                 self.tree_view._show_context_menu(item, x, y)
 
-    def _on_motion(self, controller, x, y):
-        """Handle mouse motion for hover effect."""
-        if self._is_scrolling or self._inline_entry is not None:
+    def _on_key(self, controller, keyval, keycode, state):
+        """Handle keyboard navigation with explorer-specific shortcuts."""
+        # Block keys during inline editing
+        if self._inline_entry is not None:
+            return False
+
+        if not self.items:
+            return False
+
+        # Cmd+C — copy selected item
+        if keyval == Gdk.KEY_c and (state & _PRIMARY_MOD):
+            if self.selected_item:
+                self.tree_view._action_copy_item(self.selected_item)
+            return True
+
+        # Cmd+V — paste copied item
+        if keyval == Gdk.KEY_v and (state & _PRIMARY_MOD):
+            if self.selected_item:
+                self.tree_view._action_paste_item(self.selected_item)
+            return True
+
+        # Cmd+Delete / Cmd+Backspace — delete
+        if keyval in (Gdk.KEY_Delete, Gdk.KEY_BackSpace) and (state & _PRIMARY_MOD):
+            if self.selected_item:
+                self.tree_view._action_delete(self.selected_item)
+            return True
+
+        # h/Left on file → open
+        if keyval in (Gdk.KEY_Left, Gdk.KEY_h):
+            if self.selected_item and not self.selected_item.is_dir:
+                if self.selected_item.path.exists() and self.tree_view.on_file_selected:
+                    self.tree_view.on_file_selected(str(self.selected_item.path))
+                return True
+
+        # l/Right on file → open
+        if keyval in (Gdk.KEY_Right, Gdk.KEY_l):
+            if self.selected_item and not self.selected_item.is_dir:
+                if self.selected_item.path.exists() and self.tree_view.on_file_selected:
+                    self.tree_view.on_file_selected(str(self.selected_item.path))
+                return True
+
+        # Fall through to ZenTree for generic navigation
+        return super()._on_key(controller, keyval, keycode, state)
+
+    def _on_item_activated(self, item):
+        """Handle file activation (click/Enter on a file)."""
+        if not item.path.exists():
+            self.tree_view.refresh()
             return
+        if self.tree_view.on_file_selected:
+            self.tree_view.on_file_selected(str(item.path))
 
-        item = self._get_item_at_y(y)
-        if item != self.hover_item:
-            self.hover_item = item
-            self._request_redraw()
+    def _should_suppress_hover(self) -> bool:
+        """Suppress hover during inline editing."""
+        return self._inline_entry is not None
 
-    def _on_leave(self, controller):
-        """Handle mouse leave."""
-        if self.hover_item:
-            self.hover_item = None
-            self._request_redraw()
+    # ── Data overrides ─────────────────────────────────────────
 
-    def _toggle_expand(self, item: TreeItem):
-        """Toggle folder expansion."""
+    def _load_item_children(self, item):
+        """Load filesystem children for a directory."""
+        self._load_children(item)  # from TreePanelDataMixin
+
+    def _is_modified_dir(self, item: TreeItem) -> bool:
+        """Check if a directory contains modified files."""
         if not item.is_dir:
-            return
-
-        vadj = self.get_vadjustment()
-        saved_scroll = vadj.get_value() if vadj else 0
-
-        item.expanded = not item.expanded
-
-        if item.expanded and not item.children:
-            self._load_children(item)
-
-        self._flatten_and_redraw()
-
-        if vadj:
-            GLib.idle_add(lambda: vadj.set_value(saved_scroll) or False)
+            return False
+        return str(item.path) in self._modified_dirs

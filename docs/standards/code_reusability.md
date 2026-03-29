@@ -1,7 +1,7 @@
 # Code Reusability
 
 **Created_at:** 2026-03-27  
-**Updated_at:** 2026-03-27  
+**Updated_at:** 2026-03-29  
 **Status:** Active  
 **Goal:** Enforce reuse of shared utilities and prevent duplication across modules  
 **Scope:** All files in `src/`  
@@ -31,3 +31,4 @@ Key modules in `src/shared/`:
 | `settings.py` | Centralized settings access (`get_setting`) |
 | `git_manager.py` | Git operations singleton |
 | `main_thread.py` | Thread-safe GTK main thread dispatch |
+| `ui/` | Reusable UI widgets (`ZenTree`, `ZenButton`, `ZenEntry`, `TabButton`, etc.) — see `docs/standards/shared_ui_components.md` |

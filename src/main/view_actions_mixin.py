@@ -227,7 +227,7 @@ class ViewActionsMixin:
             if not config:
                 self.split_panels.show("debug")
                 self.debug_panel.append_output(
-                    "Cannot debug: supported file types are Python (.py), C (.c), and C++ (.cpp/.cc/.cxx)\n",
+                    "Cannot debug: supported file types are Python (.py), C (.c), C++ (.cpp/.cc/.cxx), and JavaScript/TypeScript (.js/.ts/.jsx/.tsx)\n",
                     "error",
                 )
                 return

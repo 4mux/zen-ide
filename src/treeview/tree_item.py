@@ -29,3 +29,8 @@ class TreeItem:
         self.is_last = is_last
         self.git_status = git_status
         self.children: List["TreeItem"] = []
+
+    @property
+    def is_expandable(self) -> bool:
+        """Alias for is_dir — used by ZenTree base class."""
+        return self.is_dir

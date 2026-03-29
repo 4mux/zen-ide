@@ -129,6 +129,7 @@ class WindowPanelsMixin:
                 "main": self.main_paned.get_position(),
                 "right": self.right_paned.get_position(),
                 "bottom": self.bottom_paned.get_position(),
+                "editor_split": self.editor_split_paned.get_position() if self.editor_split_paned else 0,
             }
             if self._bottom_panels_created and panel_name != "ai_chat":
                 if ai_enabled:
@@ -140,6 +141,9 @@ class WindowPanelsMixin:
             if panel_name == "editor":
                 animate_paned(self.main_paned, 0)
                 animate_paned(self.right_paned, w, on_done=self._sync_terminal_resize)
+                if self.editor_split_paned:
+                    self.editor_split_paned.set_shrink_end_child(True)
+                    animate_paned(self.editor_split_paned, w)
             elif panel_name == "terminal":
                 animate_paned(self.main_paned, 0)
                 animate_paned(self.right_paned, 0)
@@ -328,4 +332,7 @@ class WindowPanelsMixin:
                 animate_paned(self.bottom_paned, target, on_done=self._sync_terminal_resize)
             # If auto_expand_terminals is False, don't restore saved position
             # (keep whatever position the panel currently has)
+        if "editor_split" in saved and self.editor_split_paned:
+            self.editor_split_paned.set_shrink_end_child(False)
+            animate_paned(self.editor_split_paned, saved["editor_split"])
         return False  # Don't repeat
