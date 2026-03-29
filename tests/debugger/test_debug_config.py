@@ -1,16 +1,47 @@
 """Tests for debugger/debug_config.py — launch configuration for Python, C, and C++."""
 
-import json
-import os
-import tempfile
+from unittest.mock import patch
+
+import pytest
 
 from debugger.debug_config import (
     DebugConfig,
     create_default_config,
-    load_launch_configs,
-    save_launch_configs,
+    load_configurations,
+    save_configurations,
     substitute_variables,
 )
+from shared.settings.default_settings import DEFAULT_SETTINGS
+
+_MOCK_FILE_TYPES = DEFAULT_SETTINGS["debugger"]["file_types"]
+
+# Mutable store for configurations used in tests
+_mock_configurations = []
+
+
+def _mock_get_setting(path, default=None):
+    if path == "debugger.file_types":
+        return _MOCK_FILE_TYPES
+    if path == "debugger.configurations":
+        return _mock_configurations
+    return default
+
+
+def _mock_set_setting(path, value):
+    global _mock_configurations
+    if path == "debugger.configurations":
+        _mock_configurations = value
+
+
+@pytest.fixture(autouse=True)
+def _patch_settings():
+    global _mock_configurations
+    _mock_configurations = []
+    with (
+        patch("debugger.debug_config.get_setting", side_effect=_mock_get_setting),
+        patch("debugger.debug_config.set_setting", side_effect=_mock_set_setting),
+    ):
+        yield
 
 
 class TestCreateDefaultConfig:
@@ -135,98 +166,81 @@ class TestDebugConfig:
         assert config.type == "cppdbg"
 
 
-class TestLaunchConfigs:
-    """Test launch.json loading and saving."""
+class TestConfigurations:
+    """Test loading and saving configurations from settings."""
 
     def test_load_supported_configs(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            zen_dir = os.path.join(tmpdir, ".zen")
-            os.makedirs(zen_dir)
-            launch_file = os.path.join(zen_dir, "launch.json")
+        global _mock_configurations
+        _mock_configurations = [
+            {
+                "name": "Python: Current File",
+                "type": "python",
+                "program": "${file}",
+            },
+            {
+                "name": "C++: Demo",
+                "type": "cppdbg",
+                "program": "${workspaceFolder}/demo",
+            },
+            {
+                "name": "Rust: Debug",
+                "type": "codelldb",
+                "program": "target/debug/app",
+            },
+        ]
 
-            data = {
-                "version": "0.2.0",
-                "configurations": [
-                    {
-                        "name": "Python: Current File",
-                        "type": "python",
-                        "program": "${file}",
-                    },
-                    {
-                        "name": "C++: Demo",
-                        "type": "cppdbg",
-                        "program": "${workspaceFolder}/demo",
-                    },
-                    {
-                        "name": "Rust: Debug",
-                        "type": "codelldb",
-                        "program": "target/debug/app",
-                    },
-                ],
-            }
-            with open(launch_file, "w") as f:
-                json.dump(data, f)
+        configs = load_configurations("/project")
+        assert len(configs) == 3
+        assert configs[0].name == "Python: Current File"
+        assert configs[0].type == "python"
+        assert configs[1].name == "C++: Demo"
+        assert configs[1].type == "cppdbg"
+        assert configs[1].program == "/project/demo"
+        assert configs[2].name == "Rust: Debug"
+        assert configs[2].type == "codelldb"
 
-            configs = load_launch_configs(tmpdir)
-            # Should load Python, cppdbg, and codelldb (all supported)
-            assert len(configs) == 3
-            assert configs[0].name == "Python: Current File"
-            assert configs[0].type == "python"
-            assert configs[2].name == "Rust: Debug"
-            assert configs[2].type == "codelldb"
-            assert configs[1].name == "C++: Demo"
-            assert configs[1].type == "cppdbg"
-
-    def test_load_missing_file(self):
-        configs = load_launch_configs("/nonexistent")
+    def test_load_empty_returns_empty(self):
+        configs = load_configurations("/project")
         assert configs == []
 
     def test_save_and_reload(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            configs = [
-                DebugConfig(
-                    name="Python Test",
-                    program="${file}",
-                ),
-            ]
-            save_launch_configs(tmpdir, configs)
+        configs = [
+            DebugConfig(name="Python Test", program="${file}"),
+        ]
+        save_configurations(configs)
 
-            reloaded = load_launch_configs(tmpdir)
-            assert len(reloaded) == 1
-            assert reloaded[0].name == "Python Test"
-
-    def test_save_creates_zen_dir(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            save_launch_configs(tmpdir, [DebugConfig(name="Test")])
-            assert os.path.isdir(os.path.join(tmpdir, ".zen"))
-            assert os.path.isfile(os.path.join(tmpdir, ".zen", "launch.json"))
+        reloaded = load_configurations()
+        assert len(reloaded) == 1
+        assert reloaded[0].name == "Python Test"
 
     def test_load_config_with_env_and_args(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            zen_dir = os.path.join(tmpdir, ".zen")
-            os.makedirs(zen_dir)
-            launch_file = os.path.join(zen_dir, "launch.json")
+        global _mock_configurations
+        _mock_configurations = [
+            {
+                "name": "Test",
+                "type": "python",
+                "program": "main.py",
+                "args": ["--verbose"],
+                "env": {"DEBUG": "1"},
+                "python": "/usr/bin/python3.12",
+                "stopOnEntry": True,
+            },
+        ]
 
-            data = {
-                "version": "0.2.0",
-                "configurations": [
-                    {
-                        "name": "Test",
-                        "type": "python",
-                        "program": "main.py",
-                        "args": ["--verbose"],
-                        "env": {"DEBUG": "1"},
-                        "python": "/usr/bin/python3.12",
-                        "stopOnEntry": True,
-                    },
-                ],
-            }
-            with open(launch_file, "w") as f:
-                json.dump(data, f)
+        configs = load_configurations("/project")
+        assert len(configs) == 1
+        assert configs[0].args == ["--verbose"]
+        assert configs[0].env == {"DEBUG": "1"}
+        assert configs[0].python == "/usr/bin/python3.12"
+        assert configs[0].stop_on_entry is True
 
-            configs = load_launch_configs(tmpdir)
-            assert len(configs) == 1
-            assert configs[0].args == ["--verbose"]
-            assert configs[0].env == {"DEBUG": "1"}
-            assert configs[0].python == "/usr/bin/python3.12"
-            assert configs[0].stop_on_entry is True
+    def test_skips_unsupported_types(self):
+        global _mock_configurations
+        _mock_configurations = [
+            {"name": "Good", "type": "python", "program": "main.py"},
+            {"name": "Bad", "type": "unsupported_type", "program": "foo"},
+        ]
+
+        configs = load_configurations()
+        assert len(configs) == 1
+        assert configs[0].name == "Good"

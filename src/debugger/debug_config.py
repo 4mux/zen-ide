@@ -1,19 +1,16 @@
 """Debug Configuration — launch configs for supported languages.
 
-Loads launch configurations from .zen/launch.json and provides
+Loads launch configurations from settings.json and provides
 zero-config debugging for Python (bdb), C/C++ (GDB), JS/TS (Node),
 and DAP-based adapters (Rust via codelldb, Ruby via rdbg, etc.).
 """
 
-import json
 import os
 from dataclasses import dataclass, field
 
-_PYTHON_EXTS = {".py"}
-_C_CPP_EXTS = {".c", ".cpp", ".cc", ".cxx", ".c++", ".h", ".hpp"}
-_JS_TS_EXTS = {".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx"}
-_RUST_EXTS = {".rs"}
-_RUBY_EXTS = {".rb"}
+from shared.settings.settings_manager import get_setting, set_setting
+
+_SUPPORTED_TYPES = {"python", "cppdbg", "node", "codelldb", "rdbg", "dap"}
 
 
 @dataclass
@@ -38,19 +35,10 @@ class DebugConfig:
 
 
 def _detect_type(file_path: str) -> str | None:
-    """Detect debug type from file extension."""
+    """Detect debug type from file extension using settings."""
     ext = os.path.splitext(file_path)[1].lower()
-    if ext in _PYTHON_EXTS:
-        return "python"
-    if ext in _C_CPP_EXTS:
-        return "cppdbg"
-    if ext in _JS_TS_EXTS:
-        return "node"
-    if ext in _RUST_EXTS:
-        return "codelldb"
-    if ext in _RUBY_EXTS:
-        return "rdbg"
-    return None
+    file_types = get_setting("debugger.file_types", {})
+    return file_types.get(ext)
 
 
 def create_default_config(file_path: str, workspace_folders: list[str] | None = None) -> DebugConfig | None:
@@ -65,43 +53,22 @@ def create_default_config(file_path: str, workspace_folders: list[str] | None = 
     cwd = workspace_folders[0] if workspace_folders else os.path.dirname(file_path)
     basename = os.path.basename(file_path)
 
-    if debug_type == "python":
-        return DebugConfig(
-            name=f"Python: {basename}",
-            _type="python",
-            program=file_path,
-            cwd=cwd,
-        )
+    _TYPE_LABELS = {
+        "python": "Python",
+        "node": "Node",
+        "codelldb": "Rust",
+        "rdbg": "Ruby",
+    }
 
-    if debug_type == "node":
-        return DebugConfig(
-            name=f"Node: {basename}",
-            _type="node",
-            program=file_path,
-            cwd=cwd,
-        )
+    if debug_type == "cppdbg":
+        lang = "C++" if os.path.splitext(file_path)[1].lower() in (".cpp", ".cc", ".cxx", ".c++", ".hpp") else "C"
+        label = lang
+    else:
+        label = _TYPE_LABELS.get(debug_type, debug_type)
 
-    if debug_type == "codelldb":
-        return DebugConfig(
-            name=f"Rust: {basename}",
-            _type="codelldb",
-            program=file_path,
-            cwd=cwd,
-        )
-
-    if debug_type == "rdbg":
-        return DebugConfig(
-            name=f"Ruby: {basename}",
-            _type="rdbg",
-            program=file_path,
-            cwd=cwd,
-        )
-
-    # C/C++
-    lang = "C++" if os.path.splitext(file_path)[1].lower() in (".cpp", ".cc", ".cxx", ".c++", ".hpp") else "C"
     return DebugConfig(
-        name=f"{lang}: {basename}",
-        _type="cppdbg",
+        name=f"{label}: {basename}",
+        _type=debug_type,
         program=file_path,
         cwd=cwd,
     )
@@ -124,58 +91,48 @@ def substitute_variables(value: str, file_path: str = "", workspace_folder: str 
     return result
 
 
-_SUPPORTED_TYPES = {"python", "cppdbg", "node", "codelldb", "rdbg", "dap"}
+def _parse_config_entry(entry: dict, workspace_folder: str = "") -> DebugConfig | None:
+    """Parse a single configuration dict into a DebugConfig."""
+    entry_type = entry.get("type", "python")
+    if entry_type not in _SUPPORTED_TYPES:
+        return None
+
+    program = entry.get("program", "")
+    if program:
+        program = substitute_variables(program, workspace_folder=workspace_folder)
+
+    cwd = entry.get("cwd", workspace_folder)
+    if cwd:
+        cwd = substitute_variables(cwd, workspace_folder=workspace_folder)
+
+    return DebugConfig(
+        name=entry.get("name", "Unnamed"),
+        _type=entry_type,
+        program=program,
+        python=entry.get("python", ""),
+        args=entry.get("args", []),
+        cwd=cwd,
+        env=entry.get("env", {}),
+        stop_on_entry=entry.get("stopOnEntry", False),
+        adapter_path=entry.get("adapterPath", ""),
+        adapter_args=entry.get("adapterArgs", []),
+        request=entry.get("request", "launch"),
+    )
 
 
-def load_launch_configs(workspace_folder: str) -> list[DebugConfig]:
-    """Load debug configurations from .zen/launch.json."""
-    launch_file = os.path.join(workspace_folder, ".zen", "launch.json")
-    if not os.path.isfile(launch_file):
-        return []
-
-    try:
-        with open(launch_file, encoding="utf-8") as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return []
-
+def load_configurations(workspace_folder: str = "") -> list[DebugConfig]:
+    """Load debug configurations from settings.json."""
+    entries = get_setting("debugger.configurations", [])
     configs = []
-    for entry in data.get("configurations", []):
-        entry_type = entry.get("type", "python")
-        if entry_type not in _SUPPORTED_TYPES:
-            continue
-
-        program = entry.get("program", "")
-        if program:
-            program = substitute_variables(program, workspace_folder=workspace_folder)
-
-        cwd = entry.get("cwd", workspace_folder)
-        if cwd:
-            cwd = substitute_variables(cwd, workspace_folder=workspace_folder)
-
-        config = DebugConfig(
-            name=entry.get("name", "Unnamed"),
-            _type=entry_type,
-            program=program,
-            python=entry.get("python", ""),
-            args=entry.get("args", []),
-            cwd=cwd,
-            env=entry.get("env", {}),
-            stop_on_entry=entry.get("stopOnEntry", False),
-            adapter_path=entry.get("adapterPath", ""),
-            adapter_args=entry.get("adapterArgs", []),
-            request=entry.get("request", "launch"),
-        )
-        configs.append(config)
-
+    for entry in entries:
+        config = _parse_config_entry(entry, workspace_folder)
+        if config:
+            configs.append(config)
     return configs
 
 
-def save_launch_configs(workspace_folder: str, configs: list[DebugConfig]) -> None:
-    """Save debug configurations to .zen/launch.json."""
-    zen_dir = os.path.join(workspace_folder, ".zen")
-    os.makedirs(zen_dir, exist_ok=True)
-
+def save_configurations(configs: list[DebugConfig]) -> None:
+    """Save debug configurations to settings.json."""
     entries = []
     for config in configs:
         entry: dict = {
@@ -201,7 +158,4 @@ def save_launch_configs(workspace_folder: str, configs: list[DebugConfig]) -> No
             entry["request"] = config.request
         entries.append(entry)
 
-    data = {"version": "0.2.0", "configurations": entries}
-    launch_file = os.path.join(zen_dir, "launch.json")
-    with open(launch_file, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    set_setting("debugger.configurations", entries)

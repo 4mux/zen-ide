@@ -209,7 +209,7 @@ class ViewActionsMixin:
             self._debug_session = None
 
         # Create a new debug session
-        from debugger.debug_config import create_default_config, load_launch_configs
+        from debugger.debug_config import create_default_config, load_configurations
 
         file_path = self.editor_view.get_current_file_path()
         if not file_path:
@@ -218,8 +218,8 @@ class ViewActionsMixin:
         workspace_folders = self.tree_view.get_workspace_folders()
         workspace = workspace_folders[0] if workspace_folders else os.path.dirname(file_path)
 
-        # Try launch.json first, then zero-config
-        configs = load_launch_configs(workspace)
+        # Try settings configurations first, then zero-config
+        configs = load_configurations(workspace)
         if configs:
             config = configs[0]
         else:

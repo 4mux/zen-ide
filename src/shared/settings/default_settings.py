@@ -103,6 +103,40 @@ DEFAULT_SETTINGS = {
         "ai_chat": {"family": _DEFAULT_FONT, "size": 14, "weight": _DEFAULT_FONT_WEIGHT},
         "markdown_preview": {"family": _DEFAULT_FONT, "size": 14, "weight": _DEFAULT_FONT_WEIGHT},
     },
+    "debugger": {
+        "configurations": [],
+        "adapters": {
+            "codelldb": {
+                "command": ["codelldb", "--port", "stdin"],
+                "launch_args_key": "program",
+            },
+            "rdbg": {
+                "command": ["rdbg", "--open", "--command", "--"],
+                "launch_args_key": "script",
+                "extra_launch_args": {"command": "ruby"},
+            },
+        },
+        "file_types": {
+            ".py": "python",
+            ".c": "cppdbg",
+            ".cpp": "cppdbg",
+            ".cc": "cppdbg",
+            ".cxx": "cppdbg",
+            ".c++": "cppdbg",
+            ".h": "cppdbg",
+            ".hpp": "cppdbg",
+            ".js": "node",
+            ".mjs": "node",
+            ".cjs": "node",
+            ".jsx": "node",
+            ".ts": "node",
+            ".mts": "node",
+            ".cts": "node",
+            ".tsx": "node",
+            ".rs": "codelldb",
+            ".rb": "rdbg",
+        },
+    },
     "font_rendering": {
         # Pango text rendering backend: "auto", "coretext", "freetype".
         # "auto" uses the platform default (CoreText on macOS, FreeType on Linux).
