@@ -3,7 +3,6 @@
 from unittest.mock import patch
 
 from debugger.dap_registry import (
-    DapAdapterInfo,
     detect_dap_type,
     find_adapter,
     make_adapter_from_path,

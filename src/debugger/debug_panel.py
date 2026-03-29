@@ -312,7 +312,7 @@ class DebugPanel(Gtk.Box):
 
         font_settings = get_font_settings("editor")
         font_family = font_settings["family"]
-        self._font_desc = Pango.FontDescription.from_string(f"{font_family} 9")
+        self._font_desc = Pango.FontDescription.from_string(f"{font_family} 12")
         self._font_attrs = Pango.AttrList.new()
         self._font_attrs.insert(Pango.attr_font_desc_new(self._font_desc))
 

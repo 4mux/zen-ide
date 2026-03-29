@@ -1,7 +1,6 @@
 """Tests for debugger/dap_client.py — DAP protocol client."""
 
 import json
-import threading
 from concurrent.futures import Future
 from unittest.mock import MagicMock, patch
 
@@ -191,13 +190,15 @@ class TestDapClientDispatch:
         with client._lock:
             client._pending[42] = fut
 
-        client._handle_response({
-            "type": "response",
-            "request_seq": 42,
-            "command": "continue",
-            "success": True,
-            "body": {},
-        })
+        client._handle_response(
+            {
+                "type": "response",
+                "request_seq": 42,
+                "command": "continue",
+                "success": True,
+                "body": {},
+            }
+        )
 
         assert fut.done()
         assert fut.result()["success"] is True
@@ -208,13 +209,15 @@ class TestDapClientDispatch:
         with client._lock:
             client._pending[7] = fut
 
-        client._handle_response({
-            "type": "response",
-            "request_seq": 7,
-            "command": "evaluate",
-            "success": False,
-            "message": "variable not found",
-        })
+        client._handle_response(
+            {
+                "type": "response",
+                "request_seq": 7,
+                "command": "evaluate",
+                "success": False,
+                "message": "variable not found",
+            }
+        )
 
         assert fut.done()
         try:
@@ -227,55 +230,57 @@ class TestDapClientDispatch:
         client = self._make_client()
         assert not client._initialized_event.is_set()
 
-        client._handle_event({
-            "type": "event",
-            "event": "initialized",
-            "body": {},
-        })
+        client._handle_event(
+            {
+                "type": "event",
+                "event": "initialized",
+                "body": {},
+            }
+        )
 
         assert client._initialized_event.is_set()
 
     @patch("debugger.dap_client.main_thread_call")
     def test_handle_output_event(self, mock_main_thread):
         client = self._make_client()
-        client._handle_event({
-            "type": "event",
-            "event": "output",
-            "body": {"category": "stdout", "output": "hello\n"},
-        })
-
-        mock_main_thread.assert_called_once_with(
-            client._on_event, "output", {"text": "hello\n", "category": "stdout"}
+        client._handle_event(
+            {
+                "type": "event",
+                "event": "output",
+                "body": {"category": "stdout", "output": "hello\n"},
+            }
         )
+
+        mock_main_thread.assert_called_once_with(client._on_event, "output", {"text": "hello\n", "category": "stdout"})
 
     @patch("debugger.dap_client.main_thread_call")
     def test_handle_terminated_event(self, mock_main_thread):
         client = self._make_client()
         client._running = True
-        client._handle_event({
-            "type": "event",
-            "event": "terminated",
-            "body": {},
-        })
+        client._handle_event(
+            {
+                "type": "event",
+                "event": "terminated",
+                "body": {},
+            }
+        )
 
         assert not client._running
-        mock_main_thread.assert_called_once_with(
-            client._on_event, "terminated", {"exit_code": 0}
-        )
+        mock_main_thread.assert_called_once_with(client._on_event, "terminated", {"exit_code": 0})
 
     @patch("debugger.dap_client.main_thread_call")
     def test_handle_exited_event(self, mock_main_thread):
         client = self._make_client()
         client._running = True
-        client._handle_event({
-            "type": "event",
-            "event": "exited",
-            "body": {"exitCode": 1},
-        })
-
-        mock_main_thread.assert_called_once_with(
-            client._on_event, "terminated", {"exit_code": 1}
+        client._handle_event(
+            {
+                "type": "event",
+                "event": "exited",
+                "body": {"exitCode": 1},
+            }
         )
+
+        mock_main_thread.assert_called_once_with(client._on_event, "terminated", {"exit_code": 1})
 
 
 class TestReadHeaders:
@@ -283,15 +288,18 @@ class TestReadHeaders:
 
     def test_parse_valid_header(self):
         import io
+
         stream = io.BytesIO(b"Content-Length: 42\r\n\r\n")
         assert DapClient._read_headers(stream) == 42
 
     def test_parse_with_extra_headers(self):
         import io
+
         stream = io.BytesIO(b"Content-Length: 100\r\nContent-Type: utf-8\r\n\r\n")
         assert DapClient._read_headers(stream) == 100
 
     def test_eof_returns_none(self):
         import io
+
         stream = io.BytesIO(b"")
         assert DapClient._read_headers(stream) is None

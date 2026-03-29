@@ -106,7 +106,7 @@ class DebugSession:
         else:
             # All other types go through DAP
             from .dap_client import DapClient
-            from .dap_registry import DapAdapterInfo, find_adapter, make_adapter_from_path
+            from .dap_registry import find_adapter, make_adapter_from_path
 
             adapter_info = None
             if self._config.adapter_path:

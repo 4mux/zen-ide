@@ -64,16 +64,20 @@ class DapClient:
         self._reader_thread.start()
 
         # DAP initialize handshake
-        init_resp = self._send_request_sync("initialize", {
-            "clientID": "zen-ide",
-            "clientName": "Zen IDE",
-            "adapterID": self._adapter_info.type,
-            "pathFormat": "path",
-            "linesStartAt1": True,
-            "columnsStartAt1": True,
-            "supportsVariableType": True,
-            "supportsRunInTerminalRequest": False,
-        }, timeout=10)
+        init_resp = self._send_request_sync(
+            "initialize",
+            {
+                "clientID": "zen-ide",
+                "clientName": "Zen IDE",
+                "adapterID": self._adapter_info.type,
+                "pathFormat": "path",
+                "linesStartAt1": True,
+                "columnsStartAt1": True,
+                "supportsVariableType": True,
+                "supportsRunInTerminalRequest": False,
+            },
+            timeout=10,
+        )
 
         if init_resp:
             self._capabilities = init_resp
@@ -158,11 +162,14 @@ class DapClient:
     # -- Request/response commands (return Future) --
 
     def get_stack(self) -> Future:
-        fut = self._send_request_async("stackTrace", {
-            "threadId": self._thread_id,
-            "startFrame": 0,
-            "levels": 50,
-        })
+        fut = self._send_request_async(
+            "stackTrace",
+            {
+                "threadId": self._thread_id,
+                "startFrame": 0,
+                "levels": 50,
+            },
+        )
         return self._map_future(fut, self._transform_stack)
 
     def get_scopes(self, frame_id: int = 0) -> Future:
@@ -174,11 +181,14 @@ class DapClient:
         return self._map_future(fut, self._transform_variables)
 
     def evaluate(self, expr: str, frame_id: int = 0) -> Future:
-        fut = self._send_request_async("evaluate", {
-            "expression": expr,
-            "frameId": frame_id,
-            "context": "repl",
-        })
+        fut = self._send_request_async(
+            "evaluate",
+            {
+                "expression": expr,
+                "frameId": frame_id,
+                "context": "repl",
+            },
+        )
         return self._map_future(fut, self._transform_evaluate)
 
     # -- Response transformers (DAP -> internal format) --
@@ -188,34 +198,40 @@ class DapClient:
         frames = []
         for sf in resp.get("body", {}).get("stackFrames", []):
             source = sf.get("source", {})
-            frames.append({
-                "id": sf.get("id", 0),
-                "name": sf.get("name", "<unknown>"),
-                "file": source.get("path", ""),
-                "line": sf.get("line", 0),
-            })
+            frames.append(
+                {
+                    "id": sf.get("id", 0),
+                    "name": sf.get("name", "<unknown>"),
+                    "file": source.get("path", ""),
+                    "line": sf.get("line", 0),
+                }
+            )
         return {"frames": frames}
 
     @staticmethod
     def _transform_scopes(resp: dict) -> dict:
         scopes = []
         for s in resp.get("body", {}).get("scopes", []):
-            scopes.append({
-                "name": s.get("name", ""),
-                "ref": s.get("variablesReference", 0),
-            })
+            scopes.append(
+                {
+                    "name": s.get("name", ""),
+                    "ref": s.get("variablesReference", 0),
+                }
+            )
         return {"scopes": scopes}
 
     @staticmethod
     def _transform_variables(resp: dict) -> dict:
         variables = []
         for v in resp.get("body", {}).get("variables", []):
-            variables.append({
-                "name": v.get("name", ""),
-                "value": v.get("value", ""),
-                "type": v.get("type", ""),
-                "ref": v.get("variablesReference", 0),
-            })
+            variables.append(
+                {
+                    "name": v.get("name", ""),
+                    "value": v.get("value", ""),
+                    "type": v.get("type", ""),
+                    "ref": v.get("variablesReference", 0),
+                }
+            )
         return {"variables": variables}
 
     @staticmethod
@@ -234,10 +250,14 @@ class DapClient:
                 bp["condition"] = condition
             breakpoints.append(bp)
 
-        self._send_request_sync("setBreakpoints", {
-            "source": {"path": file_path},
-            "breakpoints": breakpoints,
-        }, timeout=5)
+        self._send_request_sync(
+            "setBreakpoints",
+            {
+                "source": {"path": file_path},
+                "breakpoints": breakpoints,
+            },
+            timeout=5,
+        )
 
     # -- DAP message I/O --
 
@@ -382,11 +402,15 @@ class DapClient:
     def _fetch_stop_location(self, reason: str) -> None:
         """Fetch stack trace to get stopped file/line, then emit stopped event."""
         try:
-            resp = self._send_request_sync("stackTrace", {
-                "threadId": self._thread_id,
-                "startFrame": 0,
-                "levels": 1,
-            }, timeout=5)
+            resp = self._send_request_sync(
+                "stackTrace",
+                {
+                    "threadId": self._thread_id,
+                    "startFrame": 0,
+                    "levels": 1,
+                },
+                timeout=5,
+            )
 
             file_path = ""
             line = 0
@@ -398,17 +422,25 @@ class DapClient:
                     file_path = source.get("path", "")
                     line = top.get("line", 0)
 
-            main_thread_call(self._on_event, "stopped", {
-                "file": file_path,
-                "line": line,
-                "reason": reason,
-            })
+            main_thread_call(
+                self._on_event,
+                "stopped",
+                {
+                    "file": file_path,
+                    "line": line,
+                    "reason": reason,
+                },
+            )
         except Exception:
-            main_thread_call(self._on_event, "stopped", {
-                "file": "",
-                "line": 0,
-                "reason": reason,
-            })
+            main_thread_call(
+                self._on_event,
+                "stopped",
+                {
+                    "file": "",
+                    "line": 0,
+                    "reason": reason,
+                },
+            )
 
     def _handle_reverse_request(self, msg: dict) -> None:
         """Respond to reverse requests from the adapter with an error."""
