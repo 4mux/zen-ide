@@ -8,10 +8,6 @@ from gi.repository import Gdk, Graphene, Gtk, GtkSource
 
 from .breakpoint_manager import BreakpointManager
 
-# Breakpoint circle diameter (pixels)
-_BP_DIAMETER = 10
-# Execution pointer arrow size
-_ARROW_SIZE = 8
 # Current line highlight alpha
 _CURRENT_LINE_ALPHA = 0.15
 
@@ -34,6 +30,10 @@ class BreakpointRenderer:
         """Set/clear the current execution pointer (1-based line number)."""
         self._current_line = line
         self._view.queue_draw()
+        # Propagate to the gutter renderer so the yellow dot is drawn/cleared
+        fm = getattr(self._view, "_fold_manager", None)
+        if fm and hasattr(fm, "_bp_renderer"):
+            fm._bp_renderer.set_current_line(line)
 
     @property
     def has_content(self) -> bool:
@@ -78,7 +78,7 @@ class BreakpointRenderer:
         _, wy = view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET, 0, y)
         text_x, _ = view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET, 0, 0)
 
-        # Current line highlight (full width)
+        # Current line highlight (full width, yellow tint)
         current_line_bg = Gdk.RGBA()
         current_line_bg.parse("#FFCC00")
         current_line_bg.alpha = _CURRENT_LINE_ALPHA
@@ -87,27 +87,3 @@ class BreakpointRenderer:
         visible = view.get_visible_rect()
         rect.init(0, wy, visible.width + text_x, lh)
         snapshot.append_color(current_line_bg, rect)
-
-        # Execution arrow in gutter
-        arrow_color = Gdk.RGBA()
-        arrow_color.parse("#FFCC00")
-
-        ax = 4
-        ay = wy + (lh - _ARROW_SIZE) // 2
-        rect.init(ax, ay, _ARROW_SIZE, _ARROW_SIZE)
-        snapshot.push_rounded_clip(self._make_rounded_rect(ax, ay, _ARROW_SIZE, _ARROW_SIZE, 2))
-        snapshot.append_color(arrow_color, rect)
-        snapshot.pop()
-
-    @staticmethod
-    def _make_rounded_rect(x, y, w, h, radius):
-        """Create a Gsk.RoundedRect for clipping."""
-        from gi.repository import Gsk
-
-        rect = Graphene.Rect()
-        rect.init(x, y, w, h)
-        size = Graphene.Size()
-        size.init(radius, radius)
-        rounded = Gsk.RoundedRect()
-        rounded.init(rect, size, size, size, size)
-        return rounded

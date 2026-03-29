@@ -1,1 +1,1 @@
-"""Debugger — bdb-based Python debugging for Zen IDE."""
+"""Debugger — Python (bdb) and C/C++ (GDB) debugging for Zen IDE."""

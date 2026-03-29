@@ -225,7 +225,11 @@ class BreakpointManager:
             return
 
         self._breakpoints.clear()
+        dirty = False
         for file_path, bps in data.get("breakpoints", {}).items():
+            if not os.path.isfile(file_path):
+                dirty = True
+                continue
             for bp_data in bps:
                 bp = Breakpoint(
                     file_path=file_path,
@@ -240,6 +244,10 @@ class BreakpointManager:
 
         self._exception_filters = data.get("exception_filters", [])
         self._function_breakpoints = data.get("function_breakpoints", [])
+
+        # Persist cleaned state if stale entries were removed
+        if dirty:
+            self.save()
 
     # -- Change notification --
 

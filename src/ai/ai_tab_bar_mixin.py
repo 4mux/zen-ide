@@ -74,6 +74,13 @@ class AITabBarMixin:
             self._scroll_tab_into_view(index)
             self._header.set_label(self._label_for_view(view))
             view.terminal.grab_focus()
+        self._scroll_terminal_to_bottom(view)
+
+    @staticmethod
+    def _scroll_terminal_to_bottom(view) -> None:
+        vadj = view.terminal.get_vadjustment()
+        if vadj is not None:
+            vadj.set_value(vadj.get_upper() - vadj.get_page_size())
 
     def _close_tab(self, index: int) -> None:
         if len(self._views) <= 1:

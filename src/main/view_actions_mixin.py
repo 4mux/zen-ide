@@ -225,7 +225,10 @@ class ViewActionsMixin:
             config = create_default_config(file_path, workspace_folders)
             if not config:
                 self.split_panels.show("debug")
-                self.debug_panel.append_output("Cannot debug: only Python (.py) files are supported\n", "error")
+                self.debug_panel.append_output(
+                    "Cannot debug: supported file types are Python (.py), C (.c), and C++ (.cpp/.cc/.cxx)\n",
+                    "error",
+                )
                 return
 
         # Show debug panel
@@ -246,7 +249,7 @@ class ViewActionsMixin:
         from dev_pad.activity_store import log_debug_activity
 
         log_debug_activity(
-            f"Debug session started — {os.path.basename(file_path)} (python)",
+            f"Debug session started — {os.path.basename(file_path)} ({config.type})",
             file_path=file_path,
         )
 
@@ -261,11 +264,13 @@ class ViewActionsMixin:
         """Handle debug session state changes — update status bar and panel."""
         from debugger.debug_session import SessionState
 
-        self.debug_panel.on_session_state_changed(session)
-        self.status_bar.set_debug_state(session.state.value)
-        # Clear execution-line highlight when resuming or ending
+        # Clear execution-line highlight first — must run before anything
+        # else that could raise and swallow the exception in _set_state.
         if session.state in (SessionState.RUNNING, SessionState.TERMINATED):
             self._clear_debug_decorations()
+
+        self.debug_panel.on_session_state_changed(session)
+        self.status_bar.set_debug_state(session.state.value)
 
     def _on_debug_stop(self, action, param):
         """Stop debugging (Shift+F5)."""
@@ -349,5 +354,5 @@ class ViewActionsMixin:
         for tab in self.editor_view.tabs.values():
             if hasattr(tab, "_breakpoint_renderer"):
                 renderer = tab._breakpoint_renderer
-                if renderer and renderer._current_line is not None:
+                if renderer:
                     renderer.set_current_line(None)

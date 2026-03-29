@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable
 
-from .bdb_debugger import BdbClient
 from .breakpoint_manager import get_breakpoint_manager
 
 
@@ -59,7 +58,7 @@ class DebugSession:
     ):
         self.state = SessionState.IDLE
         self._config = config
-        self._client: BdbClient | None = None
+        self._client = None  # BdbClient or GdbClient
         self._current_frame: StackFrame | None = None
         self._cached_stack: list[StackFrame] = []
 
@@ -91,7 +90,15 @@ class DebugSession:
         cwd = self._config.cwd or workspace_folder or os.path.dirname(file_path)
         python = self._config.python or ""
 
-        self._client = BdbClient(self._on_event)
+        # Select adapter based on config type
+        if self._config.type == "cppdbg":
+            from .gdb_debugger import GdbClient
+
+            self._client = GdbClient(self._on_event)
+        else:
+            from .bdb_debugger import BdbClient
+
+            self._client = BdbClient(self._on_event)
 
         try:
             self._client.start(
@@ -159,7 +166,7 @@ class DebugSession:
         self._set_state(SessionState.RUNNING)
 
     def pause(self) -> None:
-        """Pause is not supported with bdb (no async command channel)."""
+        """Pause execution (only supported with GDB, not bdb)."""
         pass
 
     # -- Inspection --

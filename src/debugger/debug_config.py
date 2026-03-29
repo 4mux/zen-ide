@@ -1,12 +1,15 @@
-"""Debug Configuration — Python-only launch configs.
+"""Debug Configuration — launch configs for Python, C, and C++.
 
 Loads launch configurations from .zen/launch.json and provides
-zero-config debugging for Python files using the bdb-based debugger.
+zero-config debugging for Python files (bdb) and C/C++ files (GDB).
 """
 
 import json
 import os
 from dataclasses import dataclass, field
+
+_PYTHON_EXTS = {".py"}
+_C_CPP_EXTS = {".c", ".cpp", ".cc", ".cxx", ".c++", ".h", ".hpp"}
 
 
 @dataclass
@@ -14,6 +17,7 @@ class DebugConfig:
     """A single debug launch configuration."""
 
     name: str
+    _type: str = "python"
     program: str = ""
     python: str = ""  # Python executable (default: sys.executable)
     args: list[str] = field(default_factory=list)
@@ -23,21 +27,44 @@ class DebugConfig:
 
     @property
     def type(self) -> str:
+        return self._type
+
+
+def _detect_type(file_path: str) -> str | None:
+    """Detect debug type from file extension."""
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in _PYTHON_EXTS:
         return "python"
+    if ext in _C_CPP_EXTS:
+        return "cppdbg"
+    return None
 
 
 def create_default_config(file_path: str, workspace_folders: list[str] | None = None) -> DebugConfig | None:
-    """Create a zero-config launch configuration for a Python file.
+    """Create a zero-config launch configuration for a supported file.
 
-    Returns None if the file is not a Python file.
+    Returns None if the file type is not supported.
     """
-    if not file_path.endswith(".py"):
+    debug_type = _detect_type(file_path)
+    if debug_type is None:
         return None
 
     cwd = workspace_folders[0] if workspace_folders else os.path.dirname(file_path)
+    basename = os.path.basename(file_path)
 
+    if debug_type == "python":
+        return DebugConfig(
+            name=f"Python: {basename}",
+            _type="python",
+            program=file_path,
+            cwd=cwd,
+        )
+
+    # C/C++
+    lang = "C++" if os.path.splitext(file_path)[1].lower() in (".cpp", ".cc", ".cxx", ".c++", ".hpp") else "C"
     return DebugConfig(
-        name=f"Python: {os.path.basename(file_path)}",
+        name=f"{lang}: {basename}",
+        _type="cppdbg",
         program=file_path,
         cwd=cwd,
     )
@@ -60,6 +87,9 @@ def substitute_variables(value: str, file_path: str = "", workspace_folder: str 
     return result
 
 
+_SUPPORTED_TYPES = {"python", "cppdbg"}
+
+
 def load_launch_configs(workspace_folder: str) -> list[DebugConfig]:
     """Load debug configurations from .zen/launch.json."""
     launch_file = os.path.join(workspace_folder, ".zen", "launch.json")
@@ -74,9 +104,8 @@ def load_launch_configs(workspace_folder: str) -> list[DebugConfig]:
 
     configs = []
     for entry in data.get("configurations", []):
-        # Only load Python configurations
-        entry_type = entry.get("type", "")
-        if entry_type and entry_type != "python":
+        entry_type = entry.get("type", "python")
+        if entry_type not in _SUPPORTED_TYPES:
             continue
 
         program = entry.get("program", "")
@@ -89,6 +118,7 @@ def load_launch_configs(workspace_folder: str) -> list[DebugConfig]:
 
         config = DebugConfig(
             name=entry.get("name", "Unnamed"),
+            _type=entry_type,
             program=program,
             python=entry.get("python", ""),
             args=entry.get("args", []),
@@ -110,7 +140,7 @@ def save_launch_configs(workspace_folder: str, configs: list[DebugConfig]) -> No
     for config in configs:
         entry: dict = {
             "name": config.name,
-            "type": "python",
+            "type": config.type,
             "program": config.program,
         }
         if config.python:

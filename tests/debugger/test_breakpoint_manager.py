@@ -281,15 +281,21 @@ class TestPersistence:
     def test_save_and_load(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             bp_file = os.path.join(tmpdir, "breakpoints.json")
+            # Create real files so load() doesn't prune them
+            test_py = os.path.join(tmpdir, "test.py")
+            lib_py = os.path.join(tmpdir, "lib.py")
+            open(test_py, "w").close()
+            open(lib_py, "w").close()
+
             with (
                 patch("debugger.breakpoint_manager._BREAKPOINTS_FILE", bp_file),
                 patch("debugger.breakpoint_manager.SETTINGS_DIR", tmpdir),
             ):
                 mgr = _make_manager()
-                mgr.add("/test.py", 10, condition="x > 5")
-                mgr.add("/test.py", 20)
-                mgr.set_enabled("/test.py", 20, False)
-                mgr.add("/lib.py", 5, log_message="Debug: {val}")
+                mgr.add(test_py, 10, condition="x > 5")
+                mgr.add(test_py, 20)
+                mgr.set_enabled(test_py, 20, False)
+                mgr.add(lib_py, 5, log_message="Debug: {val}")
                 mgr.set_exception_filters(["uncaught"])
                 mgr.add_function_breakpoint("main")
                 mgr.save()
@@ -298,17 +304,39 @@ class TestPersistence:
                 mgr2 = _make_manager()
                 mgr2.load()
 
-                bps_test = mgr2.get_for_file("/test.py")
+                bps_test = mgr2.get_for_file(test_py)
                 assert len(bps_test) == 2
                 assert bps_test[0].condition == "x > 5"
                 assert bps_test[1].enabled is False
 
-                bps_lib = mgr2.get_for_file("/lib.py")
+                bps_lib = mgr2.get_for_file(lib_py)
                 assert len(bps_lib) == 1
                 assert bps_lib[0].log_message == "Debug: {val}"
 
                 assert mgr2.get_exception_filters() == ["uncaught"]
                 assert mgr2.get_function_breakpoints() == ["main"]
+
+    def test_load_prunes_deleted_files(self):
+        """Breakpoints for files that no longer exist are removed on load."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bp_file = os.path.join(tmpdir, "breakpoints.json")
+            real_file = os.path.join(tmpdir, "real.py")
+            open(real_file, "w").close()
+
+            with (
+                patch("debugger.breakpoint_manager._BREAKPOINTS_FILE", bp_file),
+                patch("debugger.breakpoint_manager.SETTINGS_DIR", tmpdir),
+            ):
+                mgr = _make_manager()
+                mgr.add(real_file, 10)
+                mgr.add("/nonexistent/ghost.py", 5)
+                mgr.save()
+
+                mgr2 = _make_manager()
+                mgr2.load()
+
+                assert len(mgr2.get_for_file(real_file)) == 1
+                assert len(mgr2.get_for_file("/nonexistent/ghost.py")) == 0
 
     def test_load_missing_file_is_safe(self):
         with patch("debugger.breakpoint_manager._BREAKPOINTS_FILE", "/nonexistent/path.json"):

@@ -39,6 +39,7 @@ class BreakpointGutterRenderer(GtkSource.GutterRenderer):
         self._breakpoint_mgr = None
         self._file_path = ""
         self._hover_line = -1
+        self._current_line: int | None = None  # 1-based execution pointer line
         self.set_xpad(0)
         self.set_ypad(0)
 
@@ -60,6 +61,11 @@ class BreakpointGutterRenderer(GtkSource.GutterRenderer):
     def set_file_path(self, file_path):
         self._file_path = file_path
 
+    def set_current_line(self, line: int | None):
+        """Set/clear the execution pointer line (1-based)."""
+        self._current_line = line
+        self.queue_draw()
+
     def do_measure(self, _orientation, _for_size):
         return _ZONE_WIDTH, _ZONE_WIDTH, -1, -1
 
@@ -74,37 +80,51 @@ class BreakpointGutterRenderer(GtkSource.GutterRenderer):
             hex_to_gdk_rgba(theme.line_number_bg, 1.0), Graphene.Rect().init(0, line_y, _ZONE_WIDTH, line_h)
         )
 
-        if not self._breakpoint_mgr or not self._file_path:
-            return
+        is_execution_line = self._current_line is not None and line == self._current_line - 1
 
-        bp = None
-        for b in self._breakpoint_mgr.get_for_file(self._file_path):
-            if b.line - 1 == line:
-                bp = b
-                break
+        if self._breakpoint_mgr and self._file_path:
+            bp = None
+            for b in self._breakpoint_mgr.get_for_file(self._file_path):
+                if b.line - 1 == line:
+                    bp = b
+                    break
 
-        if bp is not None:
-            if not bp.enabled:
-                color = hex_to_gdk_rgba("#808080", 0.5)
-            elif bp.is_conditional:
-                color = hex_to_gdk_rgba("#FF8C00", 1.0)
-            elif bp.is_logpoint:
-                color = hex_to_gdk_rgba("#3CB371", 1.0)
-            else:
-                color = hex_to_gdk_rgba("#E51400", 1.0)
-        elif line == self._hover_line:
-            color = hex_to_gdk_rgba("#E51400", 0.25)
-        else:
-            return
+            if bp is not None and not is_execution_line:
+                if not bp.enabled:
+                    color = hex_to_gdk_rgba("#808080", 0.5)
+                elif bp.is_conditional:
+                    color = hex_to_gdk_rgba("#FF8C00", 1.0)
+                elif bp.is_logpoint:
+                    color = hex_to_gdk_rgba("#3CB371", 1.0)
+                else:
+                    color = hex_to_gdk_rgba("#E51400", 1.0)
+                cx = _BP_LEFT_PAD + (_ZONE_WIDTH - _BP_LEFT_PAD - _BP_DIAMETER) / 2
+                cy = line_y + (line_h - _BP_DIAMETER) / 2
+                rect = Graphene.Rect().init(cx, cy, _BP_DIAMETER, _BP_DIAMETER)
+                rounded = _make_rounded_rect(cx, cy, _BP_DIAMETER, _BP_DIAMETER, _BP_DIAMETER // 2)
+                snapshot.push_rounded_clip(rounded)
+                snapshot.append_color(color, rect)
+                snapshot.pop()
+            elif not is_execution_line and line == self._hover_line:
+                color = hex_to_gdk_rgba("#E51400", 0.25)
+                cx = _BP_LEFT_PAD + (_ZONE_WIDTH - _BP_LEFT_PAD - _BP_DIAMETER) / 2
+                cy = line_y + (line_h - _BP_DIAMETER) / 2
+                rect = Graphene.Rect().init(cx, cy, _BP_DIAMETER, _BP_DIAMETER)
+                rounded = _make_rounded_rect(cx, cy, _BP_DIAMETER, _BP_DIAMETER, _BP_DIAMETER // 2)
+                snapshot.push_rounded_clip(rounded)
+                snapshot.append_color(color, rect)
+                snapshot.pop()
 
-        line_y, line_h = lines.get_line_yrange(line, Gtk.TextWindowType.WIDGET)
-        cx = _BP_LEFT_PAD + (_ZONE_WIDTH - _BP_LEFT_PAD - _BP_DIAMETER) / 2
-        cy = line_y + (line_h - _BP_DIAMETER) / 2
-        rect = Graphene.Rect().init(cx, cy, _BP_DIAMETER, _BP_DIAMETER)
-        rounded = _make_rounded_rect(cx, cy, _BP_DIAMETER, _BP_DIAMETER, _BP_DIAMETER // 2)
-        snapshot.push_rounded_clip(rounded)
-        snapshot.append_color(color, rect)
-        snapshot.pop()
+        # Execution pointer — yellow dot drawn on top, same position as breakpoint dot
+        if is_execution_line:
+            color = hex_to_gdk_rgba("#FFCC00", 1.0)
+            cx = _BP_LEFT_PAD + (_ZONE_WIDTH - _BP_LEFT_PAD - _BP_DIAMETER) / 2
+            cy = line_y + (line_h - _BP_DIAMETER) / 2
+            rect = Graphene.Rect().init(cx, cy, _BP_DIAMETER, _BP_DIAMETER)
+            rounded = _make_rounded_rect(cx, cy, _BP_DIAMETER, _BP_DIAMETER, _BP_DIAMETER // 2)
+            snapshot.push_rounded_clip(rounded)
+            snapshot.append_color(color, rect)
+            snapshot.pop()
 
     def _on_motion(self, controller, x, y):
         # y is in renderer-local coords; translate to view widget coords

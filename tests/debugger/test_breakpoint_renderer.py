@@ -104,12 +104,3 @@ class TestDraw:
         renderer.draw(snapshot, (0, 10), fold_unsafe={4})
         # Should not render the breakpoint at line 5 (0-based: 4)
         snapshot.push_rounded_clip.assert_not_called()
-
-
-class TestRoundedRect:
-    """Test the rounded rect helper."""
-
-    def test_make_rounded_rect(self):
-        result = BreakpointRenderer._make_rounded_rect(10, 20, 30, 40, 5)
-        # Just verify it doesn't crash and returns something
-        assert result is not None

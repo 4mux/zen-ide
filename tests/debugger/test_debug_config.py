@@ -1,4 +1,4 @@
-"""Tests for debugger/debug_config.py — Python-only launch configuration."""
+"""Tests for debugger/debug_config.py — launch configuration for Python, C, and C++."""
 
 import json
 import os
@@ -23,9 +23,26 @@ class TestCreateDefaultConfig:
         assert config.program == "/project/main.py"
         assert config.cwd == "/project"
 
-    def test_non_python_returns_none(self):
+    def test_c_default_config(self):
+        config = create_default_config("/project/main.c", ["/project"])
+        assert config is not None
+        assert config.type == "cppdbg"
+        assert config.program == "/project/main.c"
+        assert config.cwd == "/project"
+
+    def test_cpp_default_config(self):
+        config = create_default_config("/project/main.cpp", ["/project"])
+        assert config is not None
+        assert config.type == "cppdbg"
+        assert config.program == "/project/main.cpp"
+
+    def test_cc_default_config(self):
+        config = create_default_config("/project/app.cc", ["/project"])
+        assert config is not None
+        assert config.type == "cppdbg"
+
+    def test_unsupported_returns_none(self):
         assert create_default_config("/project/app.js") is None
-        assert create_default_config("/project/main.c") is None
         assert create_default_config("/project/main.rs") is None
         assert create_default_config("/project/readme.txt") is None
 
@@ -93,15 +110,19 @@ class TestDebugConfig:
         assert config.env == {}
         assert config.stop_on_entry is False
 
-    def test_type_is_always_python(self):
+    def test_type_default_is_python(self):
         config = DebugConfig(name="Test")
         assert config.type == "python"
+
+    def test_type_cppdbg(self):
+        config = DebugConfig(name="Test", _type="cppdbg")
+        assert config.type == "cppdbg"
 
 
 class TestLaunchConfigs:
     """Test launch.json loading and saving."""
 
-    def test_load_python_configs(self):
+    def test_load_supported_configs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             zen_dir = os.path.join(tmpdir, ".zen")
             os.makedirs(zen_dir)
@@ -116,6 +137,11 @@ class TestLaunchConfigs:
                         "program": "${file}",
                     },
                     {
+                        "name": "C++: Demo",
+                        "type": "cppdbg",
+                        "program": "${workspaceFolder}/demo",
+                    },
+                    {
                         "name": "Rust: Debug",
                         "type": "codelldb",
                         "program": "target/debug/app",
@@ -126,9 +152,12 @@ class TestLaunchConfigs:
                 json.dump(data, f)
 
             configs = load_launch_configs(tmpdir)
-            # Should only load Python configs
-            assert len(configs) == 1
+            # Should load Python and cppdbg, skip codelldb
+            assert len(configs) == 2
             assert configs[0].name == "Python: Current File"
+            assert configs[0].type == "python"
+            assert configs[1].name == "C++: Demo"
+            assert configs[1].type == "cppdbg"
 
     def test_load_missing_file(self):
         configs = load_launch_configs("/nonexistent")
