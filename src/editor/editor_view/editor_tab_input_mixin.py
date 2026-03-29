@@ -345,6 +345,10 @@ class EditorTabInputMixin:
 
         from gi.repository import Gdk
 
+        # Dismiss diagnostics popover on any click
+        if hasattr(self, "_diag_popover") and self._diag_popover:
+            self._diag_popover.popdown()
+
         # Dismiss inline completion ghost text on any click
         ic = self._inline_completion
         if ic is not None and ic.is_active:

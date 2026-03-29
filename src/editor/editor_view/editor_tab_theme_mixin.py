@@ -110,7 +110,8 @@ class EditorTabThemeMixin:
         popover = Gtk.Popover()
         popover.set_child(content_box)
         popover.set_parent(self.view)
-        popover.set_autohide(True)
+        popover.set_autohide(False)
+        popover.set_can_focus(False)
         popover.add_css_class("zen-diagnostics-popover")
 
         rect = Gdk.Rectangle()
@@ -140,10 +141,27 @@ class EditorTabThemeMixin:
             _popover.unparent()
             if hasattr(self, "_diag_popover") and self._diag_popover is _popover:
                 self._diag_popover = None
+                if hasattr(self, "_diag_popover_key_handler"):
+                    self.view.remove_controller(self._diag_popover_key_handler)
+                    self._diag_popover_key_handler = None
 
         popover.connect("closed", on_closed)
+
+        # Dismiss on any key press so the user can type immediately
+        key_ctrl = Gtk.EventControllerKey()
+
+        def on_key_pressed(_ctrl, _keyval, _keycode, _state):
+            if hasattr(self, "_diag_popover") and self._diag_popover:
+                self._diag_popover.popdown()
+            return False  # propagate the key event to the editor
+
+        key_ctrl.connect("key-pressed", on_key_pressed)
+        self.view.add_controller(key_ctrl)
+        self._diag_popover_key_handler = key_ctrl
+
         self._diag_popover = popover
         popover.popup()
+        self.view.grab_focus()
 
     def _apply_theme(self):
         """Apply the current theme to the source view."""

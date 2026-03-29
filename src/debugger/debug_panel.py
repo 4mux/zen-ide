@@ -6,7 +6,7 @@ and debug console. Registered via SplitPanelManager.
 
 import os
 
-from gi.repository import GLib, Gtk, Pango
+from gi.repository import Gtk, Pango
 
 from icons import IconsManager
 from shared.ui import ZenButton
