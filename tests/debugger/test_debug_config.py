@@ -47,8 +47,19 @@ class TestCreateDefaultConfig:
         assert config.type == "node"
         assert config.name == "Node: app.js"
 
+    def test_rust_config(self):
+        config = create_default_config("/project/main.rs")
+        assert config is not None
+        assert config.type == "codelldb"
+        assert config.name == "Rust: main.rs"
+
+    def test_ruby_config(self):
+        config = create_default_config("/project/app.rb")
+        assert config is not None
+        assert config.type == "rdbg"
+        assert config.name == "Ruby: app.rb"
+
     def test_unsupported_returns_none(self):
-        assert create_default_config("/project/main.rs") is None
         assert create_default_config("/project/readme.txt") is None
 
     def test_uses_file_dir_when_no_workspace(self):
@@ -157,10 +168,12 @@ class TestLaunchConfigs:
                 json.dump(data, f)
 
             configs = load_launch_configs(tmpdir)
-            # Should load Python and cppdbg, skip codelldb
-            assert len(configs) == 2
+            # Should load Python, cppdbg, and codelldb (all supported)
+            assert len(configs) == 3
             assert configs[0].name == "Python: Current File"
             assert configs[0].type == "python"
+            assert configs[2].name == "Rust: Debug"
+            assert configs[2].type == "codelldb"
             assert configs[1].name == "C++: Demo"
             assert configs[1].type == "cppdbg"
 

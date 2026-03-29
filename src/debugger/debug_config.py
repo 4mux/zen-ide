@@ -1,8 +1,8 @@
-"""Debug Configuration — launch configs for Python, C, C++, and JS/TS.
+"""Debug Configuration — launch configs for supported languages.
 
 Loads launch configurations from .zen/launch.json and provides
-zero-config debugging for Python files (bdb), C/C++ files (GDB),
-and JavaScript/TypeScript files (Node.js V8 Inspector).
+zero-config debugging for Python (bdb), C/C++ (GDB), JS/TS (Node),
+and DAP-based adapters (Rust via codelldb, Ruby via rdbg, etc.).
 """
 
 import json
@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 _PYTHON_EXTS = {".py"}
 _C_CPP_EXTS = {".c", ".cpp", ".cc", ".cxx", ".c++", ".h", ".hpp"}
 _JS_TS_EXTS = {".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx"}
+_RUST_EXTS = {".rs"}
+_RUBY_EXTS = {".rb"}
 
 
 @dataclass
@@ -26,6 +28,9 @@ class DebugConfig:
     cwd: str = ""
     env: dict[str, str] = field(default_factory=dict)
     stop_on_entry: bool = False
+    adapter_path: str = ""  # Explicit DAP adapter executable path
+    adapter_args: list[str] = field(default_factory=list)
+    request: str = "launch"  # DAP request type: "launch" or "attach"
 
     @property
     def type(self) -> str:
@@ -41,6 +46,10 @@ def _detect_type(file_path: str) -> str | None:
         return "cppdbg"
     if ext in _JS_TS_EXTS:
         return "node"
+    if ext in _RUST_EXTS:
+        return "codelldb"
+    if ext in _RUBY_EXTS:
+        return "rdbg"
     return None
 
 
@@ -72,6 +81,22 @@ def create_default_config(file_path: str, workspace_folders: list[str] | None = 
             cwd=cwd,
         )
 
+    if debug_type == "codelldb":
+        return DebugConfig(
+            name=f"Rust: {basename}",
+            _type="codelldb",
+            program=file_path,
+            cwd=cwd,
+        )
+
+    if debug_type == "rdbg":
+        return DebugConfig(
+            name=f"Ruby: {basename}",
+            _type="rdbg",
+            program=file_path,
+            cwd=cwd,
+        )
+
     # C/C++
     lang = "C++" if os.path.splitext(file_path)[1].lower() in (".cpp", ".cc", ".cxx", ".c++", ".hpp") else "C"
     return DebugConfig(
@@ -99,7 +124,7 @@ def substitute_variables(value: str, file_path: str = "", workspace_folder: str 
     return result
 
 
-_SUPPORTED_TYPES = {"python", "cppdbg", "node"}
+_SUPPORTED_TYPES = {"python", "cppdbg", "node", "codelldb", "rdbg", "dap"}
 
 
 def load_launch_configs(workspace_folder: str) -> list[DebugConfig]:
@@ -137,6 +162,9 @@ def load_launch_configs(workspace_folder: str) -> list[DebugConfig]:
             cwd=cwd,
             env=entry.get("env", {}),
             stop_on_entry=entry.get("stopOnEntry", False),
+            adapter_path=entry.get("adapterPath", ""),
+            adapter_args=entry.get("adapterArgs", []),
+            request=entry.get("request", "launch"),
         )
         configs.append(config)
 
@@ -165,6 +193,12 @@ def save_launch_configs(workspace_folder: str, configs: list[DebugConfig]) -> No
             entry["env"] = config.env
         if config.stop_on_entry:
             entry["stopOnEntry"] = True
+        if config.adapter_path:
+            entry["adapterPath"] = config.adapter_path
+        if config.adapter_args:
+            entry["adapterArgs"] = config.adapter_args
+        if config.request != "launch":
+            entry["request"] = config.request
         entries.append(entry)
 
     data = {"version": "0.2.0", "configurations": entries}

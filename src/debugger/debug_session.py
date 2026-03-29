@@ -58,7 +58,7 @@ class DebugSession:
     ):
         self.state = SessionState.IDLE
         self._config = config
-        self._client = None  # BdbClient or GdbClient
+        self._client = None  # BdbClient, GdbClient, NodeClient, or DapClient
         self._current_frame: StackFrame | None = None
         self._cached_stack: list[StackFrame] = []
 
@@ -99,10 +99,29 @@ class DebugSession:
             from .node_debugger import NodeClient
 
             self._client = NodeClient(self._on_event)
-        else:
+        elif self._config.type == "python":
             from .bdb_debugger import BdbClient
 
             self._client = BdbClient(self._on_event)
+        else:
+            # All other types go through DAP
+            from .dap_client import DapClient
+            from .dap_registry import DapAdapterInfo, find_adapter, make_adapter_from_path
+
+            adapter_info = None
+            if self._config.adapter_path:
+                adapter_info = make_adapter_from_path(
+                    self._config.adapter_path, self._config.adapter_args, self._config.type
+                )
+            else:
+                adapter_info = find_adapter(self._config.type)
+
+            if adapter_info is None:
+                self._emit_output("console", f"No debug adapter found for type '{self._config.type}'\n")
+                self._set_state(SessionState.TERMINATED)
+                return
+
+            self._client = DapClient(self._on_event, adapter_info)
 
         try:
             self._client.start(
