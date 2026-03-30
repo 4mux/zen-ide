@@ -94,15 +94,16 @@ $DIFF_CONTENT"
 
 # --- AI description generation ---
 
-AI_PROMPT="You are a senior developer writing a GitHub pull request description.
+AI_PROMPT="You are writing a GitHub pull request description.
 Given the following git changes from branch '$CURRENT_BRANCH' into '$BASE_BRANCH',
 generate only the PR body (no title).
 
 Rules:
-- Start with '## Description' as a markdown heading.
-- Write exactly 3 lines of description: a concise, confident summary of what the changes do and why they matter.
-- Be direct, opinionated, and add some personality — avoid corporate fluff.
-- Do not include raw diffs, stats, commit hashes, or bullet points.
+- Start with '## Summary' as a markdown heading.
+- Write a brief, neutral summary of what changed and why (2-4 sentences).
+- If useful, add a '## Changes' section with a short bullet list of the key changes.
+- Be factual and concise — no hype, no filler, no selling the change.
+- Do not include raw diffs, stats, or commit hashes.
 
 $CONTEXT"
 
