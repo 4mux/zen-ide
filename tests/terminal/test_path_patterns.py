@@ -257,8 +257,12 @@ def _resolve_file_path(cwd, get_workspace_folders, relative_path):
         return os.path.abspath(candidate)
 
     if get_workspace_folders:
+        cwd_abs = os.path.abspath(cwd)
         for folder in get_workspace_folders():
-            candidate = os.path.join(folder, relative_path)
+            folder_abs = os.path.abspath(folder)
+            if not cwd_abs.startswith(folder_abs + os.sep) and cwd_abs != folder_abs:
+                continue
+            candidate = os.path.join(folder_abs, relative_path)
             if os.path.isfile(candidate):
                 return os.path.abspath(candidate)
 
@@ -280,28 +284,46 @@ class TestResolveFilePath:
         assert resolved == os.path.abspath(str(test_file))
 
     def test_resolve_in_workspace_folder(self, tmp_path):
-        """File found in workspace folder should be resolved."""
+        """File found in the workspace folder that contains cwd should be resolved."""
         ws = tmp_path / "workspace"
         ws.mkdir()
+        subdir = ws / "subdir"
+        subdir.mkdir()
         test_file = ws / "lib.py"
         test_file.write_text("# test")
 
-        resolved = _resolve_file_path(str(tmp_path), lambda: [str(ws)], "lib.py")
+        # cwd is inside the workspace folder, so fallback finds it
+        resolved = _resolve_file_path(str(subdir), lambda: [str(ws)], "lib.py")
         assert resolved == os.path.abspath(str(test_file))
+
+    def test_no_cross_repo_fallback(self, tmp_path):
+        """File in a different workspace folder must NOT be returned."""
+        repo_a = tmp_path / "repo-a"
+        repo_a.mkdir()
+        repo_b = tmp_path / "repo-b"
+        repo_b.mkdir()
+        (repo_b / "poetry.lock").write_text("# lock")
+
+        # cwd is repo-a, file only exists in repo-b → should NOT resolve
+        resolved = _resolve_file_path(str(repo_a), lambda: [str(repo_a), str(repo_b)], "poetry.lock")
+        assert resolved is None
 
     def test_not_found_returns_none(self, tmp_path):
         resolved = _resolve_file_path(str(tmp_path), None, "nonexistent.py")
         assert resolved is None
 
     def test_cwd_takes_precedence(self, tmp_path):
-        """If file exists in both cwd and workspace, cwd wins."""
-        cwd_file = tmp_path / "file.py"
-        cwd_file.write_text("# cwd")
-
+        """If file exists in both cwd and workspace root, cwd wins."""
         ws = tmp_path / "ws"
         ws.mkdir()
+        subdir = ws / "sub"
+        subdir.mkdir()
+
+        cwd_file = subdir / "file.py"
+        cwd_file.write_text("# cwd")
+
         ws_file = ws / "file.py"
         ws_file.write_text("# ws")
 
-        resolved = _resolve_file_path(str(tmp_path), lambda: [str(ws)], "file.py")
+        resolved = _resolve_file_path(str(subdir), lambda: [str(ws)], "file.py")
         assert resolved == os.path.abspath(str(cwd_file))

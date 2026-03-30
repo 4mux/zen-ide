@@ -190,14 +190,22 @@ class TerminalFileNavigationMixin:
             self.on_open_file(file_path, line_num)
 
     def _resolve_file_path(self, relative_path):
-        """Resolve a relative path to an absolute path using workspace folders and cwd."""
+        """Resolve a relative path to an absolute path using workspace folders and cwd.
+
+        Only searches the workspace folder that contains the terminal's cwd,
+        preventing cross-repo navigation when a file is missing locally.
+        """
         candidate = os.path.join(self.cwd, relative_path)
         if os.path.isfile(candidate):
             return os.path.abspath(candidate)
 
         if self._get_workspace_folders:
+            cwd_abs = os.path.abspath(self.cwd)
             for folder in self._get_workspace_folders():
-                candidate = os.path.join(folder, relative_path)
+                folder_abs = os.path.abspath(folder)
+                if not cwd_abs.startswith(folder_abs + os.sep) and cwd_abs != folder_abs:
+                    continue
+                candidate = os.path.join(folder_abs, relative_path)
                 if os.path.isfile(candidate):
                     return os.path.abspath(candidate)
 
