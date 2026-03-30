@@ -26,10 +26,56 @@ def _setup_gi_paths():
         os.environ["XDG_DATA_DIRS"] = share_dir + ":" + os.environ.get("XDG_DATA_DIRS", "/usr/share")
         os.environ["GSETTINGS_SCHEMA_DIR"] = os.path.join(share_dir, "glib-2.0", "schemas")
 
+    # Fontconfig: inject bundled fonts directory into fontconfig's search path.
+    # FcConfigAppFontAddFile registers into the "application" font set, but
+    # Pango's PangoFcFontMap only enumerates the "system" font set.  The only
+    # reliable way is to add a <dir> element via a custom fonts.conf wrapper
+    # set BEFORE any library initializes fontconfig.
+    _setup_fontconfig(bundle_dir)
+
     # Ensure PYTHONPATH includes src for relative imports
     src_dir = os.path.join(bundle_dir, "src")
     if os.path.isdir(src_dir) and src_dir not in sys.path:
         sys.path.insert(0, src_dir)
+
+
+def _setup_fontconfig(bundle_dir):
+    """Generate a fonts.conf wrapper that includes bundled fonts.
+
+    Pango's PangoFcFontMap only enumerates fontconfig's *system* font set
+    (populated from <dir> entries in fonts.conf), not the *application* set
+    (populated by FcConfigAppFontAddFile).  The only reliable way to make
+    bundled fonts visible to Pango is to add them via a <dir> element in
+    fontconfig's configuration, set via FONTCONFIG_FILE before any library
+    initializes fontconfig.
+    """
+    fonts_dir = os.path.join(bundle_dir, "fonts", "resources")
+    if not os.path.isdir(fonts_dir):
+        return
+
+    import atexit
+    import tempfile
+
+    # Find the system fonts.conf to include
+    system_conf = None
+    for candidate in ["/opt/homebrew/etc/fonts/fonts.conf", "/usr/local/etc/fonts/fonts.conf", "/etc/fonts/fonts.conf"]:
+        if os.path.isfile(candidate):
+            system_conf = candidate
+            break
+
+    # Write a wrapper fonts.conf that includes the system config + our font dir
+    conf = '<?xml version="1.0"?>\n<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">\n<fontconfig>\n'
+    if system_conf:
+        conf += f"  <include>{system_conf}</include>\n"
+    conf += f"  <dir>{fonts_dir}</dir>\n"
+    conf += "</fontconfig>\n"
+
+    fd, conf_path = tempfile.mkstemp(prefix="zen-fonts-", suffix=".conf")
+    os.write(fd, conf.encode("utf-8"))
+    os.close(fd)
+    os.environ["FONTCONFIG_FILE"] = conf_path
+
+    atexit.register(lambda: os.unlink(conf_path) if os.path.exists(conf_path) else None)
 
 
 _setup_gi_paths()

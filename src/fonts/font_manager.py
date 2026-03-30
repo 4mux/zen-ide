@@ -59,10 +59,11 @@ def _fonts_already_in_pango() -> bool:
 
 
 def register_resource_fonts() -> None:
-    """Register font files from embedded data with the OS font system.
+    """Register font files from embedded data with fontconfig.
 
-    Uses CoreText on macOS, fontconfig on Linux.  Fonts stay
-    app-scoped — never installed system-wide.
+    Fonts stay app-scoped — never installed system-wide.  Uses fontconfig
+    on all platforms (CoreText process-scoped registration is invisible to
+    Pango's font map).
 
     If the early background thread (zen_ide_window.py) already registered fonts via
     fontconfig before Gtk.init(), its ``_fonts_preregistered`` flag is checked
@@ -96,85 +97,24 @@ def register_resource_fonts() -> None:
     if not font_files:
         return
 
-    if sys.platform == "darwin":
-        _register_fonts_macos(font_files)
-    else:
-        _register_fonts_fontconfig_files(font_files)
+    # Use fontconfig on all platforms — CoreText process-scoped registration
+    # is invisible to Pango's font map, but fontconfig works reliably.
+    _register_fonts_fontconfig_files(font_files)
 
     # Force Pango to re-enumerate fonts so newly registered fonts are visible
     _refresh_pango_font_map()
 
 
-def _register_fonts_macos(font_files: List) -> None:
-    """Register fonts using macOS CoreText (process-scoped)."""
-    try:
-        import ctypes
-        import ctypes.util
-
-        ct_lib = ctypes.util.find_library("CoreText")
-        cf_lib = ctypes.util.find_library("CoreFoundation")
-        if not ct_lib or not cf_lib:
-            return
-
-        ct = ctypes.cdll.LoadLibrary(ct_lib)
-        cf = ctypes.cdll.LoadLibrary(cf_lib)
-
-        cf.CFStringCreateWithCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
-        cf.CFStringCreateWithCString.restype = ctypes.c_void_p
-        cf.CFURLCreateWithFileSystemPath.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_bool]
-        cf.CFURLCreateWithFileSystemPath.restype = ctypes.c_void_p
-        ct.CTFontManagerRegisterFontsForURL.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
-        ct.CTFontManagerRegisterFontsForURL.restype = ctypes.c_bool
-
-        kCFStringEncodingUTF8 = 0x08000100
-        kCFURLPOSIXPathStyle = 0
-        kCTFontManagerScopeProcess = 1
-
-        for font_file in font_files:
-            path_str = cf.CFStringCreateWithCString(None, str(font_file).encode("utf-8"), kCFStringEncodingUTF8)
-            url = cf.CFURLCreateWithFileSystemPath(None, path_str, kCFURLPOSIXPathStyle, False)
-            error = ctypes.c_void_p(0)
-            ct.CTFontManagerRegisterFontsForURL(url, kCTFontManagerScopeProcess, ctypes.byref(error))
-    except Exception:
-        pass
-
-
 def _refresh_pango_font_map() -> None:
     """Signal Pango that available fonts may have changed.
 
-    After registering fonts with CoreText/fontconfig, the existing Pango
+    After registering fonts with fontconfig, the existing Pango
     font map singleton may have cached its family list without the new fonts.
     Calling changed() forces re-enumeration on next access.
-
-    On macOS, the PangoCairoCoreTextFontMap may not pick up post-Gtk.init()
-    CoreText registrations via changed() alone.  In that case, create a fresh
-    font map (which queries CoreText anew) and swap it in as the default.
     """
     try:
         font_map = get_pango_font_map()
         font_map.changed()
-    except Exception:
-        pass
-
-    # On macOS CoreText, changed() often isn't enough for post-GTK registrations.
-    if not _fonts_already_in_pango():
-        _swap_pango_font_map()
-
-
-def _swap_pango_font_map() -> None:
-    """Replace the default PangoCairo font map with a freshly created one.
-
-    A new PangoCairo.FontMap queries CoreText/fontconfig from scratch, picking
-    up any fonts registered since the original map was created.  Also updates
-    the cache in get_pango_font_map() so all subsequent callers see the new map.
-    """
-    try:
-        from gi.repository import PangoCairo
-
-        new_map = PangoCairo.FontMap.new()
-        PangoCairo.FontMap.set_default(new_map)
-        # Update the cached reference used by the rest of the codebase.
-        get_pango_font_map._cached = new_map
     except Exception:
         pass
 

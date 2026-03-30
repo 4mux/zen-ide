@@ -1,15 +1,10 @@
-"""Tests for icon font registration — ensures Nerd Font icons render correctly.
+"""Tests for icon font files — ensures Nerd Font icons have required glyphs.
 
-These tests verify the fix for the bug where icons didn't appear in the tree
-view when using the freetype/fontconfig Pango backend (PANGOCAIRO_BACKEND=fc).
-
-Root cause: Fonts were only registered with CoreText, but when using fontconfig
-backend, Pango couldn't see them. The fix ensures fonts are registered with the
-appropriate backend (CoreText or fontconfig) based on the Pango backend setting.
+Note: Some tests require fontTools which may not be installed. Those tests
+are individually skipped via pytest.mark.skipif.
 """
 
 import os
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -166,53 +161,6 @@ class TestPangoBackendSetting:
             assert result == "coretext"
 
 
-class TestFontRegistrationBackendSelection:
-    """Test that font registration uses correct backend based on settings."""
-
-    def test_fontconfig_used_when_pangocairo_backend_fc(self):
-        """register_resource_fonts() should use fontconfig when PANGOCAIRO_BACKEND=fc."""
-        from fonts import font_manager
-
-        # Reset registration state
-        font_manager._resource_fonts_registered = False
-
-        with patch.object(font_manager, "_fonts_already_in_pango", return_value=False):
-            with patch.object(font_manager, "_register_fonts_fontconfig_files") as mock_fc:
-                with patch.object(font_manager, "_register_fonts_macos") as mock_ct:
-                    with patch.object(font_manager, "_refresh_pango_font_map"):
-                        with patch.dict(os.environ, {"PANGOCAIRO_BACKEND": "fc"}):
-                            font_manager.register_resource_fonts()
-
-        # On macOS with fc backend, should use fontconfig, not CoreText
-        if sys.platform == "darwin":
-            mock_fc.assert_called_once()
-            mock_ct.assert_not_called()
-
-    def test_coretext_used_when_no_pangocairo_backend(self):
-        """register_resource_fonts() should use CoreText on macOS without fc backend."""
-        if sys.platform != "darwin":
-            pytest.skip("CoreText only available on macOS")
-
-        from fonts import font_manager
-
-        # Reset registration state
-        font_manager._resource_fonts_registered = False
-
-        with patch.object(font_manager, "_fonts_already_in_pango", return_value=False):
-            with patch.object(font_manager, "_register_fonts_fontconfig_files") as mock_fc:
-                with patch.object(font_manager, "_register_fonts_macos") as mock_ct:
-                    with patch.object(font_manager, "_refresh_pango_font_map"):
-                        # Ensure PANGOCAIRO_BACKEND is not set to fc
-                        env = os.environ.copy()
-                        env.pop("PANGOCAIRO_BACKEND", None)
-                        with patch.dict(os.environ, env, clear=True):
-                            font_manager.register_resource_fonts()
-
-        # Should use CoreText on macOS without fc backend
-        mock_ct.assert_called_once()
-        mock_fc.assert_not_called()
-
-
 class TestIconFontName:
     """Test that icon font name is correctly returned."""
 
@@ -222,41 +170,3 @@ class TestIconFontName:
 
         assert get_icon_font_name() == "ZenIcons"
         assert ICON_FONT_FAMILY == "ZenIcons"
-
-
-class TestEarlyFontRegistrationSkipsFreeType:
-    """Test that early CoreText registration is skipped for freetype backend."""
-
-    @pytest.mark.skipif(sys.platform != "darwin", reason="macOS only")
-    def test_early_registration_skipped_for_freetype(self):
-        """_register_fonts_early() should skip CoreText when using freetype."""
-        import zen_ide_window
-
-        # Mock _read_pango_backend to return freetype
-        with patch.object(zen_ide_window, "_read_pango_backend", return_value="freetype"):
-            # Reset the flag
-            zen_ide_window._fonts_preregistered = False
-
-            # Call the function
-            zen_ide_window._register_fonts_early()
-
-            # Should NOT have registered (skipped due to freetype)
-            assert zen_ide_window._fonts_preregistered is False
-
-    @pytest.mark.skipif(sys.platform != "darwin", reason="macOS only")
-    def test_early_registration_runs_for_coretext(self):
-        """_register_fonts_early() should run CoreText registration for auto/coretext."""
-        import zen_ide_window
-
-        # Mock _read_pango_backend to return auto (default)
-        with patch.object(zen_ide_window, "_read_pango_backend", return_value="auto"):
-            # The actual registration may or may not succeed depending on state,
-            # but the function should at least attempt it (not early-return)
-            # We can verify by checking it doesn't skip due to freetype check
-            zen_ide_window._fonts_preregistered = False
-
-            # This should attempt registration (not skip)
-            # We can't easily verify CoreText calls without more mocking,
-            # but we can verify the function completes without error
-            zen_ide_window._register_fonts_early()
-            # No assertion needed - just verifying no exception is raised
