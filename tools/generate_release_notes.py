@@ -10,7 +10,8 @@ import subprocess
 import sys
 
 GITHUB_MODELS_URL = "https://models.github.ai/inference/chat/completions"
-MODEL = "openai/gpt-4.1-mini"
+GITHUB_MODEL = "openai/gpt-4.1-mini"
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
 
 def get_previous_tag() -> str:
@@ -41,14 +42,9 @@ def get_gh_token() -> str | None:
         return None
 
 
-def ai_summarize(commits: str, version: str, since_tag: str) -> str | None:
-    """Summarise commits using GitHub Models API (authenticated via gh token)."""
-    token = get_gh_token()
-    if not token:
-        return None
-
+def _build_prompt(commits: str, version: str, since_tag: str) -> str:
     scope = f"{since_tag}..v{version}" if since_tag else f"up to v{version}"
-    prompt = (
+    return (
         f"Generate concise release notes for Zen IDE v{version} ({scope}).\n"
         "Group changes into sections: **Features**, **Fixes**, **Improvements** "
         "(omit empty sections).\n"
@@ -58,9 +54,34 @@ def ai_summarize(commits: str, version: str, since_tag: str) -> str | None:
         f"Commits:\n{commits}"
     )
 
+
+def ai_summarize_claude(commits: str, version: str, since_tag: str) -> str | None:
+    """Summarise commits using Claude CLI (Haiku)."""
+    prompt = _build_prompt(commits, version, since_tag)
+    try:
+        r = subprocess.run(
+            ["claude", "-p", prompt, "--model", CLAUDE_MODEL],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def ai_summarize_github(commits: str, version: str, since_tag: str) -> str | None:
+    """Summarise commits using GitHub Models API (authenticated via gh token)."""
+    token = get_gh_token()
+    if not token:
+        return None
+
+    prompt = _build_prompt(commits, version, since_tag)
     payload = json.dumps(
         {
-            "model": MODEL,
+            "model": GITHUB_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.3,
         }
@@ -113,7 +134,9 @@ def main():
         print("No new commits since last tag.", file=sys.stderr)
         sys.exit(1)
 
-    notes = ai_summarize(commits, version, since_tag)
+    notes = ai_summarize_claude(commits, version, since_tag)
+    if not notes:
+        notes = ai_summarize_github(commits, version, since_tag)
     if notes:
         print(notes)
     else:
