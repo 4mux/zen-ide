@@ -1,41 +1,14 @@
 name: Release
 
 on:
-  push:
-    branches: [main]
+  release:
+    types: [published]
 
 permissions:
   contents: write
 
 jobs:
-  version:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.ver.outputs.version }}
-      tag: ${{ steps.ver.outputs.tag }}
-      exists: ${{ steps.check.outputs.exists }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Extract version
-        id: ver
-        run: |
-          VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Check if tag already exists
-        id: check
-        run: |
-          if git ls-remote --tags origin "refs/tags/v${{ steps.ver.outputs.version }}" | grep -q .; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
   build-linux:
-    needs: version
-    if: needs.version.outputs.exists == 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -59,8 +32,6 @@ jobs:
           path: dist/Zen_IDE-*.AppImage
 
   build-macos:
-    needs: version
-    if: needs.version.outputs.exists == 'false'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
@@ -94,7 +65,7 @@ jobs:
 
       - name: Create tar.gz
         run: |
-          VERSION=${{ needs.version.outputs.version }}
+          VERSION="${GITHUB_REF_NAME#v}"
           cd dist
           tar -czf "Zen_IDE-${VERSION}-macos.tar.gz" "Zen IDE.app"
 
@@ -104,8 +75,8 @@ jobs:
           name: macos-app
           path: dist/Zen_IDE-*-macos.tar.gz
 
-  release:
-    needs: [version, build-linux, build-macos]
+  upload:
+    needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -115,15 +86,10 @@ jobs:
         with:
           path: artifacts
 
-      - name: Create release
+      - name: Attach artifacts to release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ needs.version.outputs.tag }}"
-          VERSION="${{ needs.version.outputs.version }}"
-
-          gh release create "$TAG" \
-            --title "Zen IDE $VERSION" \
-            --generate-notes \
+          gh release upload "${{ github.event.release.tag_name }}" \
             artifacts/linux-appimage/* \
             artifacts/macos-app/*

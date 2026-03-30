@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help run run-compile startup-time clean install install-py install-cli install-dev install-build install-system-deps install-desktop test tests lint dist build-launcher
+.PHONY: help run run-compile startup-time clean install install-py install-cli install-dev install-build install-system-deps install-desktop test tests lint dist build-launcher release
 
 UNAME_S := $(shell uname -s)
 PYTHON  = .venv/bin/python3
@@ -145,3 +145,31 @@ clean: ## Remove build artifacts and caches
 	rm -rf __pycache__ .python_ide "Zen IDE.app" build dist dist_native *.egg-info zen_ide.build zen_ide.dist zen_ide.onefile-build
 	find . -path ./.venv -prune -o -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	rm -rf .pytest_cache .ruff_cache
+
+release: ## Create a new release with AI-generated notes (requires gh CLI)
+	@VERSION=$(APP_VERSION); TAG="v$$VERSION"; \
+	echo "Releasing Zen IDE $$VERSION..."; \
+	if git ls-remote --tags origin "refs/tags/$$TAG" 2>/dev/null | grep -q .; then \
+		echo "✗ Tag $$TAG already exists — bump version in pyproject.toml first"; \
+		exit 1; \
+	fi; \
+	echo "Generating release notes with AI..."; \
+	NOTES=$$($(PYTHON) tools/generate_release_notes.py "$$VERSION") || exit 1; \
+	echo ""; \
+	echo "┌── Release Notes ($$TAG) ──"; \
+	echo "$$NOTES" | sed 's/^/│ /'; \
+	echo "└──────────────────────────"; \
+	echo ""; \
+	read -p "Create release $$TAG with these notes? [y/N] " CONFIRM; \
+	if [ "$$CONFIRM" = "y" ] || [ "$$CONFIRM" = "Y" ]; then \
+		echo "$$NOTES" > /tmp/zen_release_notes.md; \
+		gh release create "$$TAG" \
+			--title "Zen IDE $$VERSION" \
+			--notes-file /tmp/zen_release_notes.md \
+			--target main; \
+		rm -f /tmp/zen_release_notes.md; \
+		echo "✓ Release created — CI will build and attach artifacts"; \
+		echo "  View: $$(gh browse -n)/releases/tag/$$TAG"; \
+	else \
+		echo "Cancelled."; \
+	fi
