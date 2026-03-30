@@ -141,12 +141,12 @@ def _read_pango_backend():
 # refresh/swap on the critical path — saves ~24ms).
 # Fonts are loaded from binary .ttf files on disk (no Python module import overhead).
 def _register_fonts_early():
-    """Register bundled .ttf files with fontconfig before GTK starts.
+    """Register bundled .ttf files before GTK starts.
 
-    Fontconfig app-font state survives Gtk.init() on all platforms, so fonts
-    are visible in Pango's first font map enumeration without needing a
-    post-init changed()/swap cycle.  Runs in a background thread (~11ms of
-    ctypes FFI, concurrent with gi_requirements + GTK C library loading).
+    On Linux, uses fontconfig (app-font state survives Gtk.init()).
+    On macOS, uses CoreText (process-scoped registration).
+    Runs in a background thread (~11ms of ctypes FFI, concurrent with
+    gi_requirements + GTK C library loading).
     """
     global _fonts_preregistered
 
@@ -162,19 +162,49 @@ def _register_fonts_early():
         return
 
     try:
-        fc_lib = ctypes.util.find_library("fontconfig")
-        if not fc_lib:
-            return
+        if sys.platform == "darwin":
+            ct_lib = ctypes.util.find_library("CoreText")
+            cf_lib = ctypes.util.find_library("CoreFoundation")
+            if not ct_lib or not cf_lib:
+                return
 
-        fc = ctypes.cdll.LoadLibrary(fc_lib)
-        fc.FcConfigAppFontAddFile.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-        fc.FcConfigAppFontAddFile.restype = ctypes.c_int
-        registered_any = False
-        for font_file in font_files:
-            ok = fc.FcConfigAppFontAddFile(None, font_file.encode("utf-8"))
-            if ok:
-                registered_any = True
-        _fonts_preregistered = registered_any
+            ct = ctypes.cdll.LoadLibrary(ct_lib)
+            cf = ctypes.cdll.LoadLibrary(cf_lib)
+
+            cf.CFStringCreateWithCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+            cf.CFStringCreateWithCString.restype = ctypes.c_void_p
+            cf.CFURLCreateWithFileSystemPath.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_bool]
+            cf.CFURLCreateWithFileSystemPath.restype = ctypes.c_void_p
+            ct.CTFontManagerRegisterFontsForURL.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
+            ct.CTFontManagerRegisterFontsForURL.restype = ctypes.c_bool
+
+            kCFStringEncodingUTF8 = 0x08000100
+            kCFURLPOSIXPathStyle = 0
+            kCTFontManagerScopeProcess = 1
+
+            registered_any = False
+            for font_file in font_files:
+                path_str = cf.CFStringCreateWithCString(None, font_file.encode("utf-8"), kCFStringEncodingUTF8)
+                url = cf.CFURLCreateWithFileSystemPath(None, path_str, kCFURLPOSIXPathStyle, False)
+                error = ctypes.c_void_p(0)
+                ok = ct.CTFontManagerRegisterFontsForURL(url, kCTFontManagerScopeProcess, ctypes.byref(error))
+                if ok:
+                    registered_any = True
+            _fonts_preregistered = registered_any
+        else:
+            fc_lib = ctypes.util.find_library("fontconfig")
+            if not fc_lib:
+                return
+
+            fc = ctypes.cdll.LoadLibrary(fc_lib)
+            fc.FcConfigAppFontAddFile.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+            fc.FcConfigAppFontAddFile.restype = ctypes.c_int
+            registered_any = False
+            for font_file in font_files:
+                ok = fc.FcConfigAppFontAddFile(None, font_file.encode("utf-8"))
+                if ok:
+                    registered_any = True
+            _fonts_preregistered = registered_any
     except Exception:
         pass
 

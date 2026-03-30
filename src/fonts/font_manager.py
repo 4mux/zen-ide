@@ -61,7 +61,7 @@ def _fonts_already_in_pango() -> bool:
 def register_resource_fonts() -> None:
     """Register font files from embedded data with the OS font system.
 
-    Uses fontconfig on all platforms (including macOS).  Fonts stay
+    Uses CoreText on macOS, fontconfig on Linux.  Fonts stay
     app-scoped — never installed system-wide.
 
     If the early background thread (zen_ide_window.py) already registered fonts via
@@ -96,7 +96,10 @@ def register_resource_fonts() -> None:
     if not font_files:
         return
 
-    _register_fonts_fontconfig_files(font_files)
+    if sys.platform == "darwin":
+        _register_fonts_macos(font_files)
+    else:
+        _register_fonts_fontconfig_files(font_files)
 
     # Force Pango to re-enumerate fonts so newly registered fonts are visible
     _refresh_pango_font_map()
