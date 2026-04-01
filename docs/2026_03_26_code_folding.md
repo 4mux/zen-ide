@@ -1,10 +1,10 @@
 # Code Folding
 
-**Created_at:** 2026-03-26
-**Updated_at:** 2026-03-27
-**Status:** Implemented
-**Goal:** Implement code folding (collapse/expand) for the editor
-**Scope:** `src/editor/fold_manager.py`, `src/editor/editor_view.py`
+**Created_at:** 2026-03-26  
+**Updated_at:** 2026-03-27   
+**Status:** Implemented   
+**Goal:** Implement code folding (collapse/expand) for the editor   
+**Scope:** `src/editor/fold_manager.py`, `src/editor/editor_view.py`  
 
 ---
 

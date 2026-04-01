@@ -44,12 +44,13 @@ class DiffNavigationMixin:
             return True
         return False
 
-    def show_diff(self, file_path: str, current_content: str = None):
+    def show_diff(self, file_path: str, current_content: str = None, scroll_to_line: int = 0):
         """Show diff for a file with commit history."""
         if not file_path or not os.path.exists(file_path):
             return
 
         self._current_file_path = file_path
+        self._pending_scroll_line = scroll_to_line
 
         # Get current content
         if current_content is None:
@@ -103,8 +104,9 @@ class DiffNavigationMixin:
         # Set language for syntax highlighting
         self._set_language(self._current_file_path)
 
-        # Schedule paned position update
+        # Schedule paned position update, then scroll to the editor's line
         GLib.idle_add(self._update_paned_position)
+        self._scroll_to_pending_line()
 
     def _show_main_branch_diff(self):
         """Fall back to showing diff vs main branch."""
@@ -120,6 +122,34 @@ class DiffNavigationMixin:
         self._apply_diff(main_content, self._current_content)
         self._set_language(self._current_file_path)
         GLib.idle_add(self._update_paned_position)
+        self._scroll_to_pending_line()
+
+    def _scroll_to_pending_line(self):
+        """Scroll to the line saved from the editor, once layout has settled.
+
+        Hides both panes before the scroll so no intermediate top-of-file
+        frame is ever painted, then reveals after the position is set.
+        """
+        line = getattr(self, "_pending_scroll_line", 0)
+        if line <= 0:
+            return
+        self._pending_scroll_line = 0
+
+        self._left_scroll.set_opacity(0)
+        self._right_scroll.set_opacity(0)
+
+        def _apply_and_reveal():
+            self._scroll_to_line(line)
+            # Reveal on the next frame after the adjustment has taken effect
+            GLib.idle_add(self._reveal_scroll_panes)
+            return False
+
+        GLib.idle_add(_apply_and_reveal)
+
+    def _reveal_scroll_panes(self):
+        self._left_scroll.set_opacity(1)
+        self._right_scroll.set_opacity(1)
+        return False
 
     def _update_ui(self):
         """Update UI elements based on current state."""

@@ -28,11 +28,11 @@ class WindowPanelsMixin:
 
     # -- Split panel show/hide callbacks (registered with SplitPanelManager) --
 
-    def _show_diff_panel(self, file_path: str, content: str):
+    def _show_diff_panel(self, file_path: str, content: str, scroll_to_line: int = 0):
         """Show diff view replacing the editor."""
         self.editor_view.set_visible(False)
         self.split_panels.swap_end_child(self.diff_view)
-        self.diff_view.show_diff(file_path, content)
+        self.diff_view.show_diff(file_path, content, scroll_to_line=scroll_to_line)
         self.diff_view.set_visible(True)
         self.diff_view.grab_focus()
         from shared.focus_manager import get_focus_manager

@@ -343,8 +343,8 @@ class DiffGutterMixin:
         if self._on_revert_callback:
             self._on_revert_callback(self._current_file_path)
 
-        # Refresh the diff view
-        self._apply_diff(self._commit_content, self._current_content)
+        # Freeze scroll position during re-render so it never visually jumps
+        self._freeze_scroll_for(lambda: self._apply_diff(self._commit_content, self._current_content))
 
     def _update_minimap(self):
         """Update minimap with current diff regions."""
@@ -369,9 +369,47 @@ class DiffGutterMixin:
         self._minimap.update_viewport(start_frac, end_frac)
         return False
 
+    def _freeze_scroll_for(self, action):
+        """Run action while keeping both scroll positions pinned and views hidden.
+
+        Hides the views via opacity during the buffer rebuild so GTK never
+        paints an intermediate frame (empty buffer / missing diff marks).
+        """
+        right_adj = self._right_scroll.get_vadjustment()
+        left_adj = self._left_scroll.get_vadjustment()
+        saved_right = right_adj.get_value()
+        saved_left = left_adj.get_value()
+
+        self._scroll_frozen_value = (saved_left, saved_right)
+
+        # Hide both panes so no intermediate state is painted
+        self._left_scroll.set_opacity(0)
+        self._right_scroll.set_opacity(0)
+
+        action()
+
+        # Clamp to new upper bounds (buffer may have fewer lines after revert)
+        right_max = max(0, right_adj.get_upper() - right_adj.get_page_size())
+        left_max = max(0, left_adj.get_upper() - left_adj.get_page_size())
+        right_adj.set_value(min(saved_right, right_max))
+        left_adj.set_value(min(saved_left, left_max))
+
+        def _thaw():
+            right_max = max(0, right_adj.get_upper() - right_adj.get_page_size())
+            left_max = max(0, left_adj.get_upper() - left_adj.get_page_size())
+            right_adj.set_value(min(saved_right, right_max))
+            left_adj.set_value(min(saved_left, left_max))
+            self._scroll_frozen_value = None
+            # Reveal once layout and diff marks are fully settled
+            self._left_scroll.set_opacity(1)
+            self._right_scroll.set_opacity(1)
+            return False
+
+        GLib.idle_add(_thaw)
+
     def _on_right_scroll(self, adj):
         """Sync left scroll to match right scroll."""
-        if self._syncing_scroll:
+        if self._syncing_scroll or self._scroll_frozen_value is not None:
             return
         self._syncing_scroll = True
         left_adj = self._left_scroll.get_vadjustment()
@@ -383,7 +421,7 @@ class DiffGutterMixin:
 
     def _on_left_scroll(self, adj):
         """Sync right scroll to match left scroll."""
-        if self._syncing_scroll:
+        if self._syncing_scroll or self._scroll_frozen_value is not None:
             return
         self._syncing_scroll = True
         right_adj = self._right_scroll.get_vadjustment()

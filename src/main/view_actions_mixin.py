@@ -52,7 +52,16 @@ class ViewActionsMixin:
             return
         file_path = self.editor_view.get_current_file_path()
         if file_path:
-            self.split_panels.show("diff", file_path=file_path, content=self.editor_view.get_current_content())
+            tab = self.editor_view._get_current_tab()
+            cursor_line = 0
+            if tab:
+                cursor_line = tab.buffer.get_iter_at_mark(tab.buffer.get_insert()).get_line()
+            self.split_panels.show(
+                "diff",
+                file_path=file_path,
+                content=self.editor_view.get_current_content(),
+                scroll_to_line=cursor_line,
+            )
 
     def _on_show_dev_pad(self, action, param):
         """Toggle the Dev Pad tab."""

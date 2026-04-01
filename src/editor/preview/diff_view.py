@@ -79,6 +79,7 @@ class DiffView(DiffParserMixin, DiffGutterMixin, DiffNavigationMixin, ThemeAware
         self.add_controller(focus_ctrl)
 
         self._syncing_scroll = False
+        self._scroll_frozen_value = None
         self._on_close_callback = None
         self._on_revert_callback = None
         self._on_click_callback = None  # Called when user clicks on diff view
