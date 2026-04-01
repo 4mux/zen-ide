@@ -109,6 +109,7 @@ class EditorTabInputMixin:
                 # If cursor is already at or before first non-ws, go to column 0
                 target = first_nonws if it.compare(first_nonws) > 0 else line_start
                 self.buffer.move_mark(cursor, target)
+                self.view.scroll_mark_onscreen(cursor)
                 return True
 
             # Cmd+Left: jump to first non-whitespace (smart home)
@@ -122,6 +123,7 @@ class EditorTabInputMixin:
                     first_nonws.forward_char()
                 target = first_nonws if it.compare(first_nonws) > 0 else line_start
                 self.buffer.place_cursor(target)
+                self.view.scroll_mark_onscreen(self.buffer.get_insert())
                 return True
 
             if is_alt and not is_cmd:
