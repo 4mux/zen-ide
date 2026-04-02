@@ -52,7 +52,11 @@ class EditorViewTabsMixin:
         from shared.ui.tab_button import FileTabButton
 
         tab_btn = FileTabButton(tab_id, sketch_tab.get_title(), on_close=lambda tid: self._close_tab_by_id(tid))
-        page_num = self.notebook.append_page(sketch_tab.widget, tab_btn)
+        page_num = self.notebook.append_page(sketch_tab.widget, None)
+        self._tab_bar.append(tab_btn)
+        click = Gtk.GestureClick.new()
+        click.connect("pressed", lambda g, n, x, y, tid=tab_id: self._select_tab_by_id(tid))
+        tab_btn.add_controller(click)
         sketch_tab._tab_button = tab_btn
         sketch_tab._tab_id = tab_id
         self.tabs[tab_id] = sketch_tab
@@ -65,6 +69,14 @@ class EditorViewTabsMixin:
         for i in range(self.notebook.get_n_pages()):
             page = self.notebook.get_nth_page(i)
             if page.__class__.__name__ == "WelcomeScreen":
+                # Remove welcome button from custom tab bar
+                child = self._tab_bar.get_first_child()
+                while child:
+                    nxt = child.get_next_sibling()
+                    if getattr(child, "tab_id", None) == -1:
+                        self._tab_bar.remove(child)
+                        break
+                    child = nxt
                 if i < self.notebook.get_n_pages():
                     self.notebook.remove_page(i)
                 return
@@ -93,11 +105,27 @@ class EditorViewTabsMixin:
         dev_pad.set_hexpand(True)
         dev_pad.set_vexpand(True)
         tab_btn = TabButton(-2, "Dev Pad", on_close=lambda tid: self._close_dev_pad_tab())
-        page_num = self.notebook.append_page(dev_pad, tab_btn)
+        self._dev_pad_tab_btn = tab_btn
+        page_num = self.notebook.append_page(dev_pad, None)
+        self._tab_bar.append(tab_btn)
+        click = Gtk.GestureClick.new()
+        click.connect("pressed", lambda g, n, x, y: self._switch_to_dev_pad())
+        tab_btn.add_controller(click)
         self.notebook.set_current_page(page_num)
+
+    def _switch_to_dev_pad(self):
+        """Switch to the Dev Pad tab."""
+        for i in range(self.notebook.get_n_pages()):
+            page = self.notebook.get_nth_page(i)
+            if page.__class__.__name__ == "DevPad":
+                self.notebook.set_current_page(i)
+                return
 
     def _close_dev_pad_tab(self):
         """Close the Dev Pad tab if present."""
+        btn = getattr(self, "_dev_pad_tab_btn", None)
+        if btn and btn.get_parent() == self._tab_bar:
+            self._tab_bar.remove(btn)
         for i in range(self.notebook.get_n_pages()):
             page = self.notebook.get_nth_page(i)
             if page.__class__.__name__ == "DevPad":
@@ -253,8 +281,14 @@ class EditorViewTabsMixin:
         from shared.ui.tab_button import FileTabButton
 
         file_tab_btn = FileTabButton(tab_id, title, on_close=lambda tid: self._close_tab_by_id(tid))
-        page_num = self.notebook.append_page(page_container, file_tab_btn)
+        page_num = self.notebook.append_page(page_container, None)
         self.tabs[tab_id] = tab
+
+        # Add button to custom tab bar and wire click-to-select
+        self._tab_bar.append(file_tab_btn)
+        click = Gtk.GestureClick.new()
+        click.connect("pressed", lambda g, n, x, y, tid=tab_id: self._select_tab_by_id(tid))
+        file_tab_btn.add_controller(click)
 
         if is_markdown and md_preview:
             start = tab.buffer.get_start_iter()
@@ -455,6 +489,13 @@ class EditorViewTabsMixin:
         """Actually remove a tab by tab_id."""
         if tab_id not in self.tabs:
             return
+
+        # Remove button from custom tab bar
+        tab = self.tabs[tab_id]
+        btn = getattr(tab, "_tab_button", None)
+        if btn and btn.get_parent() == self._tab_bar:
+            self._tab_bar.remove(btn)
+
         page_num = self._get_page_num_for_tab_id(tab_id)
         if page_num < 0 or page_num >= self.notebook.get_n_pages():
             if tab_id in self._modification_handler_ids:

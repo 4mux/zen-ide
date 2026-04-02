@@ -46,7 +46,11 @@ class EditorViewFileOpenersMixin:
         from shared.ui.tab_button import TabButton
 
         img_tab_btn = TabButton(tab_id, os.path.basename(file_path), on_close=lambda tid: self._do_close_tab_by_id(tid))
-        page_num = self.notebook.append_page(scrolled, img_tab_btn)
+        page_num = self.notebook.append_page(scrolled, None)
+        self._tab_bar.append(img_tab_btn)
+        click = Gtk.GestureClick.new()
+        click.connect("pressed", lambda g, n, x, y, tid=tab_id: self._select_tab_by_id(tid))
+        img_tab_btn.add_controller(click)
 
         img_tab = EditorTab(file_path=file_path)
         img_tab._is_image = True
@@ -93,7 +97,11 @@ class EditorViewFileOpenersMixin:
         from shared.ui.tab_button import FileTabButton
 
         tab_btn = FileTabButton(tab_id, sketch_tab.get_title(), on_close=lambda tid: self._close_tab_by_id(tid))
-        page_num = self.notebook.append_page(sketch_tab.widget, tab_btn)
+        page_num = self.notebook.append_page(sketch_tab.widget, None)
+        self._tab_bar.append(tab_btn)
+        click = Gtk.GestureClick.new()
+        click.connect("pressed", lambda g, n, x, y, tid=tab_id: self._select_tab_by_id(tid))
+        tab_btn.add_controller(click)
         sketch_tab._tab_button = tab_btn
         sketch_tab._tab_id = tab_id
         self.tabs[tab_id] = sketch_tab
@@ -131,7 +139,11 @@ class EditorViewFileOpenersMixin:
         from shared.ui.tab_button import TabButton
 
         bin_tab_btn = TabButton(tab_id, os.path.basename(file_path), on_close=lambda tid: self._do_close_tab_by_id(tid))
-        page_num = self.notebook.append_page(viewer, bin_tab_btn)
+        page_num = self.notebook.append_page(viewer, None)
+        self._tab_bar.append(bin_tab_btn)
+        click = Gtk.GestureClick.new()
+        click.connect("pressed", lambda g, n, x, y, tid=tab_id: self._select_tab_by_id(tid))
+        bin_tab_btn.add_controller(click)
 
         bin_tab = EditorTab(file_path=file_path)
         bin_tab._is_binary = True

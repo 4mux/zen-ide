@@ -63,13 +63,27 @@ class EditorView(
         # Callbacks for editor action buttons
         self.on_maximize: Callable[[str], None] | None = None
 
-        # Create notebook for tabs
-        self.notebook = Gtk.Notebook()
-        self.notebook.set_scrollable(True)
-        self.notebook.set_show_border(False)
-        self.notebook.set_vexpand(True)
-        self.notebook.connect("switch-page", self._on_tab_changed)
-        self.append(self.notebook)
+        # Custom tab bar: [scroll-left] [scrollable tabs] [scroll-right] [actions]
+        tab_bar_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+
+        self._scroll_left_btn = Gtk.Button.new_from_icon_name("pan-start-symbolic")
+        self._scroll_left_btn.add_css_class("flat")
+        self._scroll_left_btn.connect("clicked", lambda _b: self._scroll_tab_bar(-1))
+        tab_bar_row.append(self._scroll_left_btn)
+
+        self._tab_bar_scroll = Gtk.ScrolledWindow()
+        self._tab_bar_scroll.set_policy(Gtk.PolicyType.EXTERNAL, Gtk.PolicyType.NEVER)
+        self._tab_bar_scroll.set_propagate_natural_width(False)
+        self._tab_bar_scroll.set_hexpand(True)
+
+        self._tab_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        self._tab_bar_scroll.set_child(self._tab_bar)
+        tab_bar_row.append(self._tab_bar_scroll)
+
+        self._scroll_right_btn = Gtk.Button.new_from_icon_name("pan-end-symbolic")
+        self._scroll_right_btn.add_css_class("flat")
+        self._scroll_right_btn.connect("clicked", lambda _b: self._scroll_tab_bar(1))
+        tab_bar_row.append(self._scroll_right_btn)
 
         # Action buttons at the end of the tab bar
         action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -83,7 +97,16 @@ class EditorView(
         self.maximize_btn.connect("clicked", self._on_maximize_clicked)
         action_box.append(self.maximize_btn)
 
-        self.notebook.set_action_widget(action_box, Gtk.PackType.END)
+        tab_bar_row.append(action_box)
+        self.append(tab_bar_row)
+
+        # Notebook with built-in tabs hidden — we manage tabs via the custom bar
+        self.notebook = Gtk.Notebook()
+        self.notebook.set_show_tabs(False)
+        self.notebook.set_show_border(False)
+        self.notebook.set_vexpand(True)
+        self.notebook.connect("switch-page", self._on_tab_changed)
+        self.append(self.notebook)
 
         # Track active/previous tab for close-button restoration
         self._active_tab_id = -1
@@ -214,6 +237,17 @@ class EditorView(
             if tab_id >= 0:
                 self._close_tab_by_id(tab_id)
             elif page_num < self.notebook.get_n_pages():
+                # Remove corresponding button from custom tab bar (non-tracked tabs)
+                page = self.notebook.get_nth_page(page_num)
+                cls_name = page.__class__.__name__
+                child = self._tab_bar.get_first_child()
+                while child:
+                    nxt = child.get_next_sibling()
+                    tid = getattr(child, "tab_id", None)
+                    if (cls_name == "WelcomeScreen" and tid == -1) or (cls_name == "DevPad" and tid == -2):
+                        self._tab_bar.remove(child)
+                        break
+                    child = nxt
                 self.notebook.remove_page(page_num)
                 if self.notebook.get_n_pages() == 0 and self.on_tabs_empty:
                     self.on_tabs_empty()
@@ -304,15 +338,37 @@ class EditorView(
             if tab.file_path and self.on_tab_switched:
                 self.on_tab_switched(tab.file_path)
 
+    def _select_tab_by_id(self, tab_id: int):
+        """Switch to a tab by its id (called from custom tab bar click)."""
+        page_num = self._get_page_num_for_tab_id(tab_id)
+        if page_num >= 0:
+            self.notebook.set_current_page(page_num)
+
     def _sync_tab_selection(self, active_page_num):
-        """Update TabButton selection state for all notebook tabs."""
+        """Update TabButton selection state in the custom tab bar."""
         from shared.ui.tab_button import TabButton
 
-        for i in range(self.notebook.get_n_pages()):
-            child = self.notebook.get_nth_page(i)
-            tab_label = self.notebook.get_tab_label(child)
-            if isinstance(tab_label, TabButton):
-                tab_label.set_selected(i == active_page_num)
+        active_tab_id = self._get_tab_id_for_page_num(active_page_num)
+        # For non-tracked pages (Welcome, DevPad), match by page index
+        active_page = self.notebook.get_nth_page(active_page_num) if active_page_num >= 0 else None
+        active_cls = active_page.__class__.__name__ if active_page else ""
+        # Map special class names to tab_ids
+        special_ids = {"WelcomeScreen": -1, "DevPad": -2}
+
+        child = self._tab_bar.get_first_child()
+        while child:
+            if isinstance(child, TabButton):
+                tid = getattr(child, "tab_id", None)
+                if active_tab_id >= 0:
+                    child.set_selected(tid == active_tab_id)
+                elif active_cls in special_ids:
+                    child.set_selected(tid == special_ids[active_cls])
+                else:
+                    child.set_selected(False)
+            child = child.get_next_sibling()
+        # Scroll the active tab into view
+        if active_tab_id >= 0:
+            GLib.idle_add(lambda: self._scroll_tab_into_view(active_tab_id) or False)
 
     def _get_current_tab(self) -> EditorTab | None:
         """Get the current tab, or None if no tabs are open."""
@@ -518,6 +574,43 @@ class EditorView(
         if tab:
             return (tab.buffer, tab.view)
         return None
+
+    # ── Custom tab bar scrolling ───────────────────────────────────────
+
+    def _scroll_tab_bar(self, direction: int) -> None:
+        """Scroll the custom tab bar left (-1) or right (+1)."""
+        hadj = self._tab_bar_scroll.get_hadjustment()
+        if not hadj:
+            return
+        step = 120
+        new_val = hadj.get_value() + direction * step
+        new_val = max(0, min(new_val, hadj.get_upper() - hadj.get_page_size()))
+        hadj.set_value(new_val)
+
+    def _scroll_tab_into_view(self, tab_id: int) -> None:
+        """Ensure the tab button for *tab_id* is visible in the scroll area."""
+        if tab_id not in self.tabs:
+            return
+        tab = self.tabs[tab_id]
+        btn = getattr(tab, "_tab_button", None)
+        if not btn:
+            return
+        hadj = self._tab_bar_scroll.get_hadjustment()
+        if not hadj:
+            return
+        # Walk siblings to compute offset
+        offset = 0
+        child = self._tab_bar.get_first_child()
+        while child and child != btn:
+            offset += child.get_width() + 2  # spacing=2
+            child = child.get_next_sibling()
+        btn_w = btn.get_width()
+        cur = hadj.get_value()
+        page = hadj.get_page_size()
+        if offset < cur:
+            hadj.set_value(offset)
+        elif offset + btn_w > cur + page:
+            hadj.set_value(offset + btn_w - page)
 
     def _on_debug_btn_clicked(self, button):
         """Activate the debug_start action."""

@@ -483,5 +483,7 @@ class StartupOptimizerMixin:
         from shared.ui.tab_button import TabButton
 
         welcome_tab_btn = TabButton(-1, "Welcome", on_close=lambda tid: self.editor_view.close_current_tab())
-        page_num = self.editor_view.notebook.append_page(welcome, welcome_tab_btn)
+        page_num = self.editor_view.notebook.append_page(welcome, None)
+        self.editor_view._tab_bar.append(welcome_tab_btn)
+        self._welcome_tab_btn = welcome_tab_btn
         self.editor_view.notebook.set_current_page(page_num)

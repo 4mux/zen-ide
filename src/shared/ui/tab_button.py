@@ -36,8 +36,8 @@ class TabButton(Gtk.Box):
         """Build the tab button UI."""
         self.set_size_request(-1, TAB_BUTTON_HEIGHT)
         self.set_halign(Gtk.Align.START)
-        self.set_margin_start(4)
-        self.set_margin_end(4)
+        self.set_margin_start(0)
+        self.set_margin_end(0)
         self.set_margin_top(2)
         self.set_margin_bottom(2)
 
@@ -52,6 +52,8 @@ class TabButton(Gtk.Box):
         self.label = Gtk.Label(label=self._title)
         self.label.set_halign(Gtk.Align.START)
         self._content.append(self.label)
+
+        self.set_tooltip_text(self._title)
 
         self._create_close_area()
 
@@ -119,6 +121,7 @@ class TabButton(Gtk.Box):
     def set_title(self, title):
         self._title = title
         self.label.set_label(title)
+        self.set_tooltip_text(title)
 
     # Subclasses set this to a font context name (e.g. "editor", "terminal")
     # to enable automatic font family loading via apply_font_settings().
