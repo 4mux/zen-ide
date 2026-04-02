@@ -50,6 +50,7 @@ gtk-macos = [
 
 [tool.uv]
 python-preference = "managed"
+constraint-dependencies = ["Pygments==2.20.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
