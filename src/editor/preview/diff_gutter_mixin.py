@@ -440,11 +440,13 @@ class DiffGutterMixin:
     def _scroll_to_line(self, line):
         """Scroll the right view to center on a specific line (instant, no animation)."""
         line = max(0, min(line, self.right_buffer.get_line_count() - 1))
+        target_iter = self.right_buffer.get_iter_at_line(line)
+        if isinstance(target_iter, tuple):
+            target_iter = target_iter[1]
+        y, line_height = self.right_view.get_line_yrange(target_iter)
         adj = self._right_scroll.get_vadjustment()
-        upper = adj.get_upper()
         page = adj.get_page_size()
-        if upper <= page:
+        if page <= 0:
             return
-        frac = line / max(self.right_buffer.get_line_count() - 1, 1)
-        target = frac * (upper - page)
-        adj.set_value(max(0.0, min(target, upper - page)))
+        target = y - (page - line_height) / 2
+        adj.set_value(max(0.0, min(target, adj.get_upper() - page)))
