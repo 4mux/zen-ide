@@ -7,8 +7,6 @@ import difflib
 
 from gi.repository import Gdk, GLib, Gtk, GtkSource
 
-from fonts import get_font_settings
-from shared.settings import get_setting
 from themes import get_theme
 
 # Diff colors as (R, G, B, alpha) for blending with theme background
@@ -187,46 +185,27 @@ class DiffParserMixin:
 
     def update_font_settings(self):
         """Update font on both diff views to match current editor font settings."""
+        from editor.source_view_config import configure_source_view_appearance
+
         for view in (self.left_view, self.right_view):
             if view is None:
                 continue
-            self._apply_font_to_view(view)
+            is_left = view is self.left_view
+            attr = "_left_font_provider" if is_left else "_right_font_provider"
+            old_provider = getattr(self, attr, None)
+            if old_provider:
+                view.get_style_context().remove_provider(old_provider)
+            provider = configure_source_view_appearance(view)
+            setattr(self, attr, provider)
 
-    def _apply_font_to_view(self, view):
-        """Apply current editor font settings to a source view."""
-        font_settings = get_font_settings("editor")
-        font_family = font_settings["family"]
-        font_size = font_settings.get("size", 13)
-
-        # Remove old provider if present
-        is_left = view is self.left_view
-        attr = "_left_font_provider" if is_left else "_right_font_provider"
-        old_provider = getattr(self, attr, None)
-        if old_provider:
-            view.get_style_context().remove_provider(old_provider)
-
-        css_provider = Gtk.CssProvider()
-        css = f"""
-            textview, textview text {{
-                font-family: '{font_family}';
-                font-size: {font_size}pt;
-            }}
-        """
-        css_provider.load_from_data(css.encode())
-        view.get_style_context().add_provider(css_provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
-        setattr(self, attr, css_provider)
-
-    def _configure_view(self, view):
+    def _configure_view(self, view, scrolled=None):
         """Configure a source view for diff display."""
-        from editor.preview.diff_view import _disable_text_view_drag
+        from editor.source_view_config import configure_source_view_appearance
 
         view.set_show_line_numbers(True)
         view.set_show_line_marks(True)
         view.set_monospace(True)
         view.set_highlight_current_line(False)
-
-        # Disable built-in text drag gesture to prevent macOS crash
-        _disable_text_view_drag(view)
 
         # Add key handler to each view
         key_controller = Gtk.EventControllerKey()
@@ -238,51 +217,8 @@ class DiffParserMixin:
         click_controller.connect("pressed", self._on_view_clicked)
         view.add_controller(click_controller)
 
-        # Apply the same style scheme as the main editor
-        from editor.editor_view import _generate_style_scheme
-
-        theme = get_theme()
-        scheme_id = _generate_style_scheme(theme)
-        scheme_manager = GtkSource.StyleSchemeManager.get_default()
-        scheme = scheme_manager.get_scheme(scheme_id)
-        if scheme:
-            view.get_buffer().set_style_scheme(scheme)
-
-        # Apply indent guide color
-        from constants import INDENT_GUIDE_ALPHA
-
-        if hasattr(view, "set_guide_color_hex"):
-            view.set_guide_color_hex(theme.indent_guide, alpha=INDENT_GUIDE_ALPHA)
-
-        # Apply same line spacing as editor
-        line_spacing = get_setting("editor.line_spacing", 4)
-        above = line_spacing // 2
-        below = line_spacing - above
-        view.set_pixels_above_lines(above)
-        view.set_pixels_below_lines(below)
-
-        # SpaceDrawer: match editor whitespace rendering
-        space_drawer = view.get_space_drawer()
-        show_ws = get_setting("editor.show_whitespace", False)
-        if show_ws:
-            space_drawer.set_types_for_locations(
-                GtkSource.SpaceLocationFlags.LEADING,
-                GtkSource.SpaceTypeFlags.SPACE | GtkSource.SpaceTypeFlags.TAB,
-            )
-            space_drawer.set_types_for_locations(
-                GtkSource.SpaceLocationFlags.TRAILING,
-                GtkSource.SpaceTypeFlags.NONE,
-            )
-            space_drawer.set_types_for_locations(
-                GtkSource.SpaceLocationFlags.INSIDE_TEXT,
-                GtkSource.SpaceTypeFlags.NONE,
-            )
-            space_drawer.set_enable_matrix(True)
-        else:
-            space_drawer.set_enable_matrix(False)
-
-        # Apply same font as editor
-        self._apply_font_to_view(view)
+        # Apply shared visual settings (font, spacing, theme, scroll, etc.)
+        configure_source_view_appearance(view, scrolled)
 
     def _on_theme_change(self, theme):
         """Update diff view styles when theme changes."""

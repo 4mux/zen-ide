@@ -26,30 +26,6 @@ from shared.ui import ZenButton
 from themes import ThemeAwareMixin, get_theme
 
 
-def _disable_text_view_drag(view):
-    """Prevent DnD of selected text (crashes on macOS) while keeping selection.
-
-    Adds a capture-phase drag gesture that claims the sequence only when
-    the click starts inside an existing selection (the DnD trigger case).
-    """
-
-    def _on_capture_drag_begin(gesture, start_x, start_y):
-        buf = view.get_buffer()
-        sel = buf.get_selection_bounds()
-        if sel:
-            bx, by = view.window_to_buffer_coords(Gtk.TextWindowType.WIDGET, int(start_x), int(start_y))
-            ok, click_iter = view.get_iter_at_location(bx, by)
-            if ok and sel[0].compare(click_iter) <= 0 and click_iter.compare(sel[1]) <= 0:
-                gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-                return
-        gesture.set_state(Gtk.EventSequenceState.DENIED)
-
-    g = Gtk.GestureDrag()
-    g.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-    g.connect("drag-begin", _on_capture_drag_begin)
-    view.add_controller(g)
-
-
 class DiffView(DiffParserMixin, DiffGutterMixin, DiffNavigationMixin, ThemeAwareMixin, FocusBorderMixin, Gtk.Box):
     """Side-by-side diff view showing changes with commit history navigation."""
 
@@ -196,7 +172,7 @@ class DiffView(DiffParserMixin, DiffGutterMixin, DiffNavigationMixin, ThemeAware
         from editor.editor_view import ZenSourceView
 
         self.left_view = ZenSourceView(buffer=self.left_buffer)
-        self._configure_view(self.left_view)
+        self._configure_view(self.left_view, self._left_scroll)
         self.left_view.set_editable(False)
         self.left_view.connect("copy-clipboard", self._on_copy_to_system)
         self._left_scroll.set_child(self.left_view)
@@ -223,7 +199,7 @@ class DiffView(DiffParserMixin, DiffGutterMixin, DiffNavigationMixin, ThemeAware
 
         self.right_buffer = GtkSource.Buffer()
         self.right_view = ZenSourceView(buffer=self.right_buffer)
-        self._configure_view(self.right_view)
+        self._configure_view(self.right_view, self._right_scroll)
         self.right_view.set_editable(False)
         self.right_view.connect("copy-clipboard", self._on_copy_to_system)
         self._right_scroll.set_child(self.right_view)

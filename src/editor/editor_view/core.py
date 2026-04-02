@@ -45,9 +45,3 @@ def _iter_at_offset(buf, offset):
     if isinstance(result, (tuple, list)):
         return result[1] if len(result) >= 2 else buf.get_start_iter()
     return result
-
-
-def _parse_hex_color(hex_color):
-    """Parse hex color to (r, g, b) floats 0–1."""
-    h = hex_color.lstrip("#")
-    return int(h[0:2], 16) / 255, int(h[2:4], 16) / 255, int(h[4:6], 16) / 255

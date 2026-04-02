@@ -13,7 +13,6 @@ from .core import (
     _iter_at_line,
     _iter_at_line_offset,
     _iter_at_offset,
-    _parse_hex_color,
 )
 from .editor_tab import EditorTab
 from .editor_view import EditorView
@@ -33,5 +32,4 @@ __all__ = [
     "_iter_at_line",
     "_iter_at_line_offset",
     "_iter_at_offset",
-    "_parse_hex_color",
 ]

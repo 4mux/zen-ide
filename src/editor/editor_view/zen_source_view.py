@@ -2,9 +2,9 @@
 
 from gi.repository import Gtk, GtkSource
 
+from shared.color_utils import hex_to_rgb_float
 from shared.utils import tuple_to_gdk_rgba
 
-from .core import _parse_hex_color
 from .zen_source_view_cursor_mixin import ZenSourceViewCursorMixin
 from .zen_source_view_gutters_mixin import ZenSourceViewGuttersMixin
 
@@ -117,7 +117,7 @@ class ZenSourceView(ZenSourceViewCursorMixin, ZenSourceViewGuttersMixin, GtkSour
             self._buf_cursor_id = None
 
     def set_guide_color_hex(self, hex_color, alpha=0.12):
-        r, g, b = _parse_hex_color(hex_color)
+        r, g, b = hex_to_rgb_float(hex_color)
         self._guide_rgba = (r, g, b, alpha)
         self._guide_color.red, self._guide_color.green, self._guide_color.blue, self._guide_color.alpha = r, g, b, alpha
 

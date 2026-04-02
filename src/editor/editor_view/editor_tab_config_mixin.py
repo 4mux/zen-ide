@@ -2,7 +2,7 @@
 
 import os
 
-from gi.repository import Gtk, GtkSource, Pango
+from gi.repository import Gtk, Pango
 
 from constants import DEFAULT_INDENT_WIDTH, EDITOR_LEFT_PADDING, LANG_INDENT_WIDTH
 from shared.settings import get_setting
@@ -13,6 +13,8 @@ class EditorTabConfigMixin:
 
     def _configure_view(self):
         """Configure the source view settings."""
+        from editor.source_view_config import configure_source_view_appearance
+
         view = self.view
 
         # Batch property changes to avoid per-setter layout invalidation
@@ -33,76 +35,13 @@ class EditorTabConfigMixin:
         # Bracket matching
         self.buffer.set_highlight_matching_brackets(True)
 
-        # SpaceDrawer: dots for leading whitespace (indent visualization)
-        space_drawer = view.get_space_drawer()
-        show_ws = get_setting("editor.show_whitespace", False)
-        if show_ws:
-            space_drawer.set_types_for_locations(
-                GtkSource.SpaceLocationFlags.LEADING,
-                GtkSource.SpaceTypeFlags.SPACE | GtkSource.SpaceTypeFlags.TAB,
-            )
-            # Explicitly disable newline arrows and trailing markers
-            space_drawer.set_types_for_locations(
-                GtkSource.SpaceLocationFlags.TRAILING,
-                GtkSource.SpaceTypeFlags.NONE,
-            )
-            space_drawer.set_types_for_locations(
-                GtkSource.SpaceLocationFlags.INSIDE_TEXT,
-                GtkSource.SpaceTypeFlags.NONE,
-            )
-            space_drawer.set_enable_matrix(True)
-        else:
-            space_drawer.set_enable_matrix(False)
-
-        # Font - use settings from fonts.editor
-        from fonts import get_font_settings
-
-        font_settings = get_font_settings("editor")
-        font_family = font_settings["family"]
-        font_size = font_settings.get("size", 13)
-        font_weight = font_settings.get("weight", "normal")
-
-        # Store provider for later updates
-        self.font_css_provider = Gtk.CssProvider()
-        css_weight = self._css_font_weight(font_weight)
-        letter_spacing = get_setting("editor.letter_spacing", 0)
-        letter_spacing_css = f"letter-spacing: {letter_spacing}px;" if letter_spacing else ""
-        css = f"""
-            textview, textview text {{
-                font-family: '{font_family}', monospace;
-                font-size: {font_size}pt;
-                font-weight: {css_weight};
-                {letter_spacing_css}
-            }}
-        """
-        self.font_css_provider.load_from_data(css.encode())
-        # Use USER priority to override theme
-        view.get_style_context().add_provider(self.font_css_provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
-
-        # Apply font weight via Pango (CSS font-weight alone doesn't affect
-        # GtkSourceView text rendering — it uses its own Pango pipeline).
-        # Deferred to 'realize' because the Pango context is replaced when the
-        # widget is realised, discarding any earlier set_font_description call.
-        self._pending_font_weight = font_weight
-        view.connect("realize", self._on_view_realize_font_weight)
-
-        # Line spacing — adds vertical breathing room between lines
-        line_spacing = get_setting("editor.line_spacing", 4)
-        above = line_spacing // 2
-        below = line_spacing - above
-        view.set_pixels_above_lines(above)
-        view.set_pixels_below_lines(below)
+        # Apply shared visual settings (font, spacing, whitespace, wrap, theme)
+        self.font_css_provider = configure_source_view_appearance(view)
 
         # Only show native caret when wide_cursor is off — ZenSourceView
         # hides it when drawing its own block cursor.
         if not getattr(view, "_wide_cursor", False):
             view.set_cursor_visible(True)
-
-        # Word wrap: respect user setting (default: off)
-        if get_setting("editor.word_wrap", False):
-            view.set_wrap_mode(Gtk.WrapMode.WORD)
-        else:
-            view.set_wrap_mode(Gtk.WrapMode.NONE)
 
         # Auto-close brackets & smart indent — must run in CAPTURE phase
         # so we intercept Enter *before* GtkSourceView inserts a newline.

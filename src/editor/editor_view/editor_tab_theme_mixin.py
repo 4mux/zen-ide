@@ -2,11 +2,11 @@
 
 from gi.repository import GLib, Gtk, GtkSource
 
+from shared.color_utils import hex_to_rgb_float
 from shared.settings import get_setting
 from shared.utils import hex_to_gdk_rgba
 from themes import get_theme
 
-from .core import _parse_hex_color
 from .highlighting import _generate_style_scheme
 
 
@@ -30,8 +30,8 @@ class EditorTabThemeMixin:
             background_rgba=hex_to_gdk_rgba(warn_color, 0.12),
         )
         # Store wave colors on the view for custom wavy line drawing
-        self.view._diag_error_wave_rgba = _parse_hex_color(err_color) + (1.0,)
-        self.view._diag_warning_wave_rgba = _parse_hex_color(warn_color) + (1.0,)
+        self.view._diag_error_wave_rgba = hex_to_rgb_float(err_color) + (1.0,)
+        self.view._diag_warning_wave_rgba = hex_to_rgb_float(warn_color) + (1.0,)
 
     def _update_diagnostic_underline_colors(self, theme):
         """Update diagnostic underline colors when theme changes."""
@@ -42,8 +42,8 @@ class EditorTabThemeMixin:
         if hasattr(self, "_diag_warning_tag"):
             self._diag_warning_tag.props.background_rgba = hex_to_gdk_rgba(warn_hex, 0.12)
         # Sync wave colors on the view
-        self.view._diag_error_wave_rgba = _parse_hex_color(err_hex) + (1.0,)
-        self.view._diag_warning_wave_rgba = _parse_hex_color(warn_hex) + (1.0,)
+        self.view._diag_error_wave_rgba = hex_to_rgb_float(err_hex) + (1.0,)
+        self.view._diag_warning_wave_rgba = hex_to_rgb_float(warn_hex) + (1.0,)
 
     def _clear_diagnostic_underlines(self):
         """Remove all diagnostic underline tags from the buffer."""
