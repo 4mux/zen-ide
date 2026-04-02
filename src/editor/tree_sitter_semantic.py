@@ -133,6 +133,8 @@ def _get_python_params(func_node):
     names = set()
     for child in params.children:
         if child.type == "identifier":
+            if child.text is None:
+                continue
             n = child.text.decode("utf-8")
             if n not in ("self", "cls"):
                 names.add(n)
@@ -143,6 +145,8 @@ def _get_python_params(func_node):
         ):
             for sub in child.children:
                 if sub.type == "identifier":
+                    if sub.text is None:
+                        break
                     n = sub.text.decode("utf-8")
                     if n not in ("self", "cls"):
                         names.add(n)
@@ -150,6 +154,8 @@ def _get_python_params(func_node):
         elif child.type in ("list_splat_pattern", "dictionary_splat_pattern"):
             for sub in child.children:
                 if sub.type == "identifier":
+                    if sub.text is None:
+                        break
                     names.add(sub.text.decode("utf-8"))
                     break
     return frozenset(names)
@@ -255,7 +261,7 @@ def _get_ts_params(func_node):
 
     names = set()
     for child in _walk_flat(params):
-        if child.type == "identifier":
+        if child.type == "identifier" and child.text is not None:
             p = child.parent
             if p is not None and p.type in (
                 "formal_parameters",
@@ -269,11 +275,11 @@ def _get_ts_params(func_node):
     # Simpler fallback: just grab direct identifier children of formal_parameters
     if not names and params is not None:
         for child in params.children:
-            if child.type == "identifier":
+            if child.type == "identifier" and child.text is not None:
                 names.add(child.text.decode("utf-8"))
             elif child.type in ("required_parameter", "optional_parameter"):
                 pat = child.child_by_field_name("pattern")
-                if pat and pat.type == "identifier":
+                if pat and pat.type == "identifier" and pat.text is not None:
                     names.add(pat.text.decode("utf-8"))
     return frozenset(names)
 

@@ -325,7 +325,11 @@ class GlobalSearchDialog(SearchEngineMixin, NvimPopup):
 
     def _do_search(self):
         """Perform the search."""
+        # Cancel any pending debounce timeout so it doesn't fire again
+        if self._search_timeout:
+            GLib.source_remove(self._search_timeout)
         self._search_timeout = None
+
         query = self.search_entry.get_text().strip()
         if len(query) < 2:
             self._clear_results()
@@ -335,8 +339,19 @@ class GlobalSearchDialog(SearchEngineMixin, NvimPopup):
         self._clear_results()
         self.results_label.set_text("Searching...")
 
+        # Read GTK widget state on main thread before spawning worker
+        case_flag = [] if self.case_sensitive.get_active() else ["-i"]
+        search_folders = self._get_search_folders()
+
+        # Bump generation so stale threads discard their results
+        self._search_generation += 1
+        generation = self._search_generation
+
         # Run search in background
-        thread = threading.Thread(target=self._search_worker, args=(query,))
+        thread = threading.Thread(
+            target=self._search_worker,
+            args=(query, generation, case_flag, search_folders),
+        )
         thread.daemon = True
         thread.start()
 

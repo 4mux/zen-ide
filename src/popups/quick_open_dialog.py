@@ -9,9 +9,6 @@ import threading
 from gi.repository import Gdk, Gtk, Pango
 
 from popups.nvim_popup import NvimPopup
-
-# Import shared modules
-from shared.git_ignore_utils import collect_global_patterns, get_matcher
 from shared.main_thread import main_thread_call
 
 
@@ -110,39 +107,49 @@ class QuickOpenDialog(NvimPopup):
         thread.start()
 
     def _load_files_worker(self):
-        """Worker thread to load all files."""
+        """Worker thread to load all files via ripgrep."""
+        import subprocess
+
         files = []
 
-        # Collect global patterns from all workspace .gitignore files first
-        collect_global_patterns(self.workspace_folders)
+        valid_folders = [f for f in self.workspace_folders if os.path.isdir(f)]
+        if not valid_folders:
+            main_thread_call(self._on_files_loaded, files)
+            return
 
-        for folder in self.workspace_folders:
-            if not os.path.isdir(folder):
-                continue
+        try:
+            result = subprocess.run(
+                ["rg", "--files"] + valid_folders,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
 
-            folder_name = os.path.basename(folder)
-            matcher = get_matcher(folder)
+            multi = len(self.workspace_folders) > 1
 
-            for root, dirs, filenames in os.walk(folder):
-                # Filter directories using gitignore matcher
-                dirs[:] = [d for d in dirs if not matcher.is_ignored(os.path.join(root, d), is_dir=True)]
+            for line in result.stdout.split("\n"):
+                if not line:
+                    continue
 
-                for filename in filenames:
-                    full_path = os.path.join(root, filename)
-                    if matcher.is_ignored(full_path, is_dir=False):
-                        continue
+                full_path = line
 
-                    rel_path = os.path.relpath(full_path, folder)
-
-                    # Include folder name if multiple workspaces
-                    if len(self.workspace_folders) > 1:
-                        display_path = os.path.join(folder_name, rel_path)
+                # Build display path
+                if multi:
+                    for folder in valid_folders:
+                        if full_path.startswith(folder):
+                            folder_name = os.path.basename(folder)
+                            rel = full_path[len(folder) :].lstrip(os.sep)
+                            display_path = os.path.join(folder_name, rel)
+                            break
                     else:
-                        display_path = rel_path
+                        display_path = full_path
+                else:
+                    display_path = os.path.relpath(full_path, valid_folders[0])
 
-                    files.append((full_path, display_path))
+                files.append((full_path, display_path))
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
 
-        # Update on main thread
         main_thread_call(self._on_files_loaded, files)
 
     def _on_files_loaded(self, files: list[tuple[str, str]]):

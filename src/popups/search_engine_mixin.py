@@ -1,8 +1,10 @@
 """
-Search engine module for global search — ripgrep, git grep, and grep integration.
+Search engine module for global search — ripgrep integration.
 
-Extracted from global_search_dialog.py — contains SearchResult, search backends,
+Extracted from global_search_dialog.py — contains SearchResult, search backend,
 and SearchEngineMixin for use by GlobalSearchDialog.
+
+Requires ripgrep (rg) to be installed (see ``make install-system-deps``).
 """
 
 import fnmatch
@@ -78,13 +80,15 @@ class SearchResult:
 
 
 class SearchEngineMixin:
-    """Mixin providing search backend methods for GlobalSearchDialog.
+    """Mixin providing ripgrep search backend for GlobalSearchDialog.
 
     Expects the host class to have:
         - self.workspace_folders: list[str]
         - self.case_sensitive: Gtk.CheckButton (with .get_active())
         - self._get_search_folders() -> list[str]
     """
+
+    _search_generation: int = 0
 
     def _should_skip_path(self, rel_path: str) -> bool:
         """Check if a path should be excluded from search results."""
@@ -93,116 +97,59 @@ class SearchEngineMixin:
         for part in parts:
             if part in global_patterns:
                 return True
-            # Check glob patterns (e.g., *.pyc, *.egg-info)
             for pattern in global_patterns:
                 if "*" in pattern and fnmatch.fnmatch(part, pattern):
                     return True
-        # Check file extension for binary files
         ext = os.path.splitext(rel_path)[1].lower()
         if ext in BINARY_EXTENSIONS:
             return True
         return False
 
-    def _search_worker(self, query: str):
-        """Search worker running in background thread."""
+    def _search_worker(self, query: str, generation: int, case_flag: list, search_folders: list):
+        """Search worker running in background thread.
+
+        All GTK widget state (case_flag, search_folders) is read on the main
+        thread before this method is called, avoiding undefined behaviour.
+        """
         from shared.main_thread import main_thread_call
 
-        results = []
-        case_flag = [] if self.case_sensitive.get_active() else ["-i"]
+        try:
+            collect_global_patterns(self.workspace_folders)
 
-        search_folders = self._get_search_folders()
+            valid_folders = [f for f in search_folders if os.path.isdir(f)]
+            if not valid_folders:
+                if self._search_generation == generation:
+                    main_thread_call(self._update_results, [])
+                return
 
-        # Ensure global patterns are collected
-        collect_global_patterns(self.workspace_folders)
+            search_results = self._ripgrep_search(valid_folders, query, case_flag)
 
-        for folder in search_folders:
-            if not os.path.isdir(folder):
-                continue
-
-            is_git_repo = os.path.isdir(os.path.join(folder, ".git"))
-            search_results = None
-
-            if is_git_repo:
-                search_results = self._git_grep_search(folder, query, case_flag)
-
-            if search_results is None:
-                # Fallback to ripgrep or grep
-                search_results = self._ripgrep_search(folder, query, case_flag)
-
-            if search_results is None:
-                search_results = self._grep_search(folder, query, case_flag)
-
+            results = []
             if search_results:
                 for file_path, line_num, line_text, match_start, match_end in search_results:
                     results.append(SearchResult(file_path, line_num, line_text, match_start, match_end))
                     if len(results) >= 500:
                         break
 
-            if len(results) >= 500:
-                break
+            if self._search_generation == generation:
+                main_thread_call(self._update_results, results)
+        except Exception:
+            if self._search_generation == generation:
+                main_thread_call(self._update_results, [])
 
-        # Update UI on main thread
-        main_thread_call(self._update_results, results)
+    def _ripgrep_search(self, folders: list, query: str, case_flag: list) -> list | None:
+        """Search all folders in a single ripgrep invocation.
 
-    def _git_grep_search(self, folder: str, query: str, case_flag: list) -> list | None:
-        """Search using git grep (respects .gitignore, only tracked files)."""
+        Ripgrep natively respects .gitignore per repo, handles binary
+        detection, and parallelises across cores.
+        """
         try:
-            result = subprocess.run(
-                ["git", "grep", "-n", "--no-color", "-I", "-F"] + case_flag + ["--", query],
-                cwd=folder,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                start_new_session=True,
-            )
-
-            # returncode 1 means no matches, which is valid
-            if result.returncode not in (0, 1):
-                return None
-
-            results = []
-            for line in result.stdout.split("\n"):
-                if not line:
-                    continue
-
-                parts = line.split(":", 2)
-                if len(parts) >= 3:
-                    rel_path = parts[0]
-
-                    # Skip excluded directories
-                    if self._should_skip_path(rel_path):
-                        continue
-
-                    file_path = os.path.join(folder, rel_path)
-                    try:
-                        line_num = int(parts[1])
-                    except ValueError:
-                        continue
-                    line_text = parts[2]
-
-                    match_start = line_text.lower().find(query.lower()) if case_flag else line_text.find(query)
-                    match_end = match_start + len(query) if match_start >= 0 else 0
-
-                    results.append((file_path, line_num, line_text, match_start, match_end))
-
-                    if len(results) >= 500:
-                        break
-
-            return results
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return None
-
-    def _ripgrep_search(self, folder: str, query: str, case_flag: list) -> list | None:
-        """Search using ripgrep with exclusions."""
-        try:
-            # Build exclusion flags for ripgrep using global patterns
             exclude_args = []
             for pattern in get_global_patterns():
                 exclude_args.extend(["-g", f"!{pattern}"])
 
             result = subprocess.run(
-                ["rg", "-n", "--no-heading", "--color=never", "--hidden", "-F"] + case_flag + exclude_args + ["--", query],
-                cwd=folder,
+                ["rg", "-n", "--no-heading", "--color=never", "-F"] + case_flag + exclude_args + ["--", query] + folders,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -218,64 +165,17 @@ class SearchEngineMixin:
 
                 parts = line.split(":", 2)
                 if len(parts) >= 3:
-                    rel_path = parts[0]
+                    file_path = parts[0]
+
+                    rel_path = file_path
+                    for folder in folders:
+                        if file_path.startswith(folder):
+                            rel_path = file_path[len(folder) :].lstrip(os.sep)
+                            break
 
                     if self._should_skip_path(rel_path):
                         continue
 
-                    file_path = os.path.join(folder, rel_path)
-                    try:
-                        line_num = int(parts[1])
-                    except ValueError:
-                        continue
-                    line_text = parts[2]
-
-                    match_start = line_text.lower().find(query.lower()) if case_flag else line_text.find(query)
-                    match_end = match_start + len(query) if match_start >= 0 else 0
-
-                    results.append((file_path, line_num, line_text, match_start, match_end))
-
-                    if len(results) >= 500:
-                        break
-
-            return results
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return None
-
-    def _grep_search(self, folder: str, query: str, case_flag: list) -> list | None:
-        """Fallback search using grep with exclusions."""
-        try:
-            # Build exclusion flags for grep using global patterns
-            exclude_args = []
-            for pattern in get_global_patterns():
-                exclude_args.extend(["--exclude-dir", pattern])
-
-            result = subprocess.run(
-                ["grep", "-r", "-n", "-I", "-F"] + case_flag + exclude_args + ["--", query, "."],
-                cwd=folder,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            if result.returncode not in (0, 1):
-                return None
-
-            results = []
-            for line in result.stdout.split("\n"):
-                if not line:
-                    continue
-
-                parts = line.split(":", 2)
-                if len(parts) >= 3:
-                    rel_path = parts[0]
-                    if rel_path.startswith("./"):
-                        rel_path = rel_path[2:]
-
-                    if self._should_skip_path(rel_path):
-                        continue
-
-                    file_path = os.path.join(folder, rel_path)
                     try:
                         line_num = int(parts[1])
                     except ValueError:

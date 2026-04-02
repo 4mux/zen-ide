@@ -43,8 +43,6 @@ make install      # Install dependencies with uv
 | `make install` | Install dependencies with uv |
 | `make install-system-deps` | Install GTK4 system dependencies (brew/apt) |
 | `make install-cli` | Install `code` command to open Zen IDE from terminal |
-| `make install-dev` | Install dev dependencies (pytest, ruff) |
-| `make install-build` | Install build dependencies (pyinstaller, nuitka) |
 | `make install-desktop` | Install .desktop file and icon (Linux) |
 | `make run` | Run IDE |
 | `make startup-time` | Measure startup time |

@@ -33,10 +33,8 @@ cd zen-ide
 make install
 
 # Option B: Step by step
-make install-system-deps   # System dependencies (GTK4 stack)
-make install-py            # Create venv and install Python dependencies with uv
-make install-dev           # (optional) Install dev tools: pytest, ruff
-make install-build         # (optional) Install build tools: pyinstaller, nuitka
+make install-system-deps   # System dependencies (GTK4 stack + ripgrep)
+make install-py            # Create venv and install all Python dependencies (dev + build)
 make install-cli           # (optional) Install the 'zen' CLI command
 ```
 
@@ -88,6 +86,6 @@ On first launch, Zen IDE will:
 ## Building a Standalone App (macOS)
 
 ```bash
-make install-build     # Install PyInstaller/Nuitka
-make dist              # Build .app bundle, sign it, and install to /Applications
+make install          # Installs everything including build tools
+make dist             # Build .app bundle, sign it, and install to /Applications
 ```

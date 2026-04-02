@@ -166,8 +166,9 @@ class TestQuickOpenDialogFileLoading:
         assert "threading.Thread" in source
 
     def test_respects_gitignore(self):
+        """Ripgrep handles .gitignore natively — verify rg is used."""
         source = read_popup_source("quick_open_dialog.py")
-        assert "git_ignore_utils" in source
+        assert "rg" in source
 
     def test_limits_results_to_100(self):
         source = read_popup_source("quick_open_dialog.py")

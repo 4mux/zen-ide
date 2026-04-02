@@ -85,22 +85,12 @@ class TestGlobalSearchDialogSearchResult:
 
 
 class TestGlobalSearchDialogSearchBackends:
-    """Verify multiple search backends."""
-
-    def test_has_git_grep_search(self):
-        tree = parse_popup_source("search_engine_mixin.py")
-        cls = find_class(tree, "SearchEngineMixin")
-        assert find_method(cls, "_git_grep_search") is not None
+    """Verify ripgrep search backend."""
 
     def test_has_ripgrep_search(self):
         tree = parse_popup_source("search_engine_mixin.py")
         cls = find_class(tree, "SearchEngineMixin")
         assert find_method(cls, "_ripgrep_search") is not None
-
-    def test_has_grep_fallback(self):
-        tree = parse_popup_source("search_engine_mixin.py")
-        cls = find_class(tree, "SearchEngineMixin")
-        assert find_method(cls, "_grep_search") is not None
 
 
 class TestGlobalSearchDialogNavigation:
