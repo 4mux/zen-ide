@@ -61,9 +61,7 @@ jobs:
         run: make install-system-deps
 
       - name: Install Python dependencies
-        run: |
-          make install-py
-          make install-build
+        run: make install-py
 
       - name: Build AppImage
         run: bash tools/build_appimage.sh
@@ -85,9 +83,7 @@ jobs:
         run: make install-system-deps
 
       - name: Install Python dependencies
-        run: |
-          make install-py
-          make install-build
+        run: make install-py
 
       - name: Build macOS app
         run: |

@@ -3,8 +3,7 @@
 # Usage: ./tools/build_appimage.sh
 #
 # Prerequisites:
-#   - make install (venv + dependencies)
-#   - make install-build (pyinstaller)
+#   - make install-py (venv + all dependencies including build tools)
 #   - System GTK4 deps installed (make install-system-deps)
 
 set -euo pipefail
