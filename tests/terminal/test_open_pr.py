@@ -83,9 +83,11 @@ class TestPreflightChecks:
         # Symlink the essentials the script needs (but NOT gh) so we can verify
         # the gh-missing error path. Using a minimal PATH ensures gh isn't
         # picked up from /usr/bin on systems where it's installed.
+        import shutil
+
         for tool in ("bash", "sh", "awk", "tr", "mktemp", "cat", "rm", "basename", "ls"):
-            src = f"/usr/bin/{tool}"
-            if os.path.exists(src):
+            src = shutil.which(tool)
+            if src:
                 (fake_bin / tool).symlink_to(src)
         result = _run(env_overrides={"PATH": str(fake_bin)})
         assert result.returncode == 1

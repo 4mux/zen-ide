@@ -84,7 +84,12 @@ GLib.set_application_name("Zen IDE")
 
 def _filter_gtk_warnings(domain, level, message, user_data):
     """Suppress known GTK4 bug: 'Broken accounting of active state' (GNOME #3356, #6442)."""
-    if "Broken accounting of active state" in (message or ""):
+    msg = message or ""
+    if "Broken accounting of active state" in msg:
+        return
+    # System theme CSS parser errors (e.g. gtk-dark.css from the OS theme) —
+    # not ours to fix; suppress so the console stays clean.
+    if "Theme parser error" in msg:
         return
     GLib.log_default_handler(domain, level, message, user_data)
 
