@@ -168,8 +168,6 @@ class StatusBar(StatusIndicatorsMixin, Gtk.Box):
 
         self._git_label = Gtk.Label(label="")
         self._git_label.add_css_class("status-git-text")
-        self._git_label.set_ellipsize(Pango.EllipsizeMode.END)
-        self._git_label.set_max_width_chars(20)
         self._git_box.append(self._git_label)
 
         left_box.append(self._git_box)
