@@ -115,6 +115,54 @@ def _filter_gio_warnings(domain, level, message, user_data):
     GLib.log_default_handler(domain, level, message, user_data)
 
 
+_SUPPRESSED_SUBSTRINGS = (
+    "Theme parser error",  # System theme CSS (e.g. gtk-dark.css) — not ours to fix
+    "Broken accounting of active state",  # GNOME #3356, #6442
+)
+
+
+def _install_stderr_filter():
+    """Filter stderr through a pipe to drop unfixable upstream GTK noise.
+
+    GTK4 emits theme-parser warnings via paths that bypass GLib log handlers
+    in PyGObject, so we filter at the fd level instead.
+    """
+    try:
+        saved_fd = os.dup(2)
+        r, w = os.pipe()
+        os.dup2(w, 2)
+        os.close(w)
+
+        needles = tuple(s.encode() for s in _SUPPRESSED_SUBSTRINGS)
+
+        def _pump():
+            with os.fdopen(r, "rb", buffering=0) as src, os.fdopen(saved_fd, "wb", buffering=0) as dst:
+                buf = b""
+                just_dropped = False
+                while True:
+                    chunk = src.read(4096)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        if any(n in line for n in needles):
+                            just_dropped = True
+                            continue
+                        # Collapse the blank line GLib prints before each warning.
+                        if just_dropped and line.strip() == b"":
+                            just_dropped = False
+                            continue
+                        just_dropped = False
+                        dst.write(line + b"\n")
+
+        threading.Thread(target=_pump, daemon=True).start()
+    except Exception:
+        pass
+
+
+_install_stderr_filter()
+
 GLib.log_set_handler("Gtk", GLib.LogLevelFlags.LEVEL_WARNING, _filter_gtk_warnings, None)
 GLib.log_set_handler("Gdk", GLib.LogLevelFlags.LEVEL_CRITICAL, _filter_gdk_warnings, None)
 GLib.log_set_handler("GLib-GIO", GLib.LogLevelFlags.LEVEL_CRITICAL, _filter_gio_criticals, None)
