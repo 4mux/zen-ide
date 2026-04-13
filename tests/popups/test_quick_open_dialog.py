@@ -170,6 +170,11 @@ class TestQuickOpenDialogFileLoading:
         source = read_popup_source("quick_open_dialog.py")
         assert "rg" in source
 
+    def test_includes_hidden_files(self):
+        """Ripgrep must use --hidden so dotfiles (.drone, .env, etc.) appear."""
+        source = read_popup_source("quick_open_dialog.py")
+        assert "--hidden" in source
+
     def test_limits_results_to_100(self):
         source = read_popup_source("quick_open_dialog.py")
         assert "[:100]" in source

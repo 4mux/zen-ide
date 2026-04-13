@@ -6,7 +6,7 @@ Provides fuzzy file finding across the workspace using Neovim-style popup.
 import os
 import threading
 
-from gi.repository import Gdk, Gtk, Pango
+from gi.repository import Gdk, GLib, Gtk, Pango
 
 from popups.nvim_popup import NvimPopup
 from shared.main_thread import main_thread_call
@@ -20,6 +20,8 @@ class QuickOpenDialog(NvimPopup):
         self.on_file_selected = on_file_selected
         self.all_files: list[tuple[str, str]] = []  # (full_path, relative_path)
         self.filtered_files: list[tuple[str, str]] = []
+        self._search_timeout = None
+        self._filter_generation = 0
         super().__init__(parent, title="Quick Open", width=800, height=600)
 
         # Load files in background
@@ -119,7 +121,7 @@ class QuickOpenDialog(NvimPopup):
 
         try:
             result = subprocess.run(
-                ["rg", "--files"] + valid_folders,
+                ["rg", "--files", "--hidden"] + valid_folders,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -156,16 +158,59 @@ class QuickOpenDialog(NvimPopup):
         """Called when files are loaded."""
         self.all_files = sorted(files, key=lambda x: x[1].lower())
         self.status_label.set_text(f"{len(files)} files")
-        self._update_results("")
+        self._do_filter()
         return False
 
     def _on_search_changed(self, entry):
-        """Handle search text change."""
-        query = entry.get_text()
-        self._update_results(query)
+        """Handle search text change (debounced)."""
+        if self._search_timeout:
+            GLib.source_remove(self._search_timeout)
+        self._search_timeout = GLib.timeout_add(150, self._do_filter)
 
-    def _update_results(self, query: str):
-        """Update results based on query."""
+    def _do_filter(self):
+        """Kick off filtering on a background thread."""
+        if self._search_timeout:
+            GLib.source_remove(self._search_timeout)
+        self._search_timeout = None
+
+        query = self.search_entry.get_text()
+        all_files = self.all_files
+
+        self._filter_generation += 1
+        generation = self._filter_generation
+
+        thread = threading.Thread(
+            target=self._filter_worker,
+            args=(query, all_files, generation),
+            daemon=True,
+        )
+        thread.start()
+        return False
+
+    def _filter_worker(self, query: str, all_files: list[tuple[str, str]], generation: int):
+        """Compute fuzzy matches off the main thread."""
+        if not query:
+            filtered = all_files[:100]
+        else:
+            query_lower = query.lower()
+            scored = []
+            for full_path, display_path in all_files:
+                score = self._fuzzy_score(query_lower, display_path.lower())
+                if score > 0:
+                    scored.append((score, full_path, display_path))
+            scored.sort(key=lambda x: -x[0])
+            filtered = [(f, d) for _, f, d in scored[:100]]
+
+        if self._filter_generation == generation:
+            main_thread_call(self._apply_results, filtered, generation)
+
+    def _apply_results(self, filtered: list[tuple[str, str]], generation: int):
+        """Replace the list rows on the main thread (only if still current)."""
+        if self._filter_generation != generation:
+            return
+
+        self.filtered_files = filtered
+
         # Clear current results
         while True:
             row = self.results_list.get_first_child()
@@ -174,23 +219,8 @@ class QuickOpenDialog(NvimPopup):
             else:
                 break
 
-        # Filter files
-        if not query:
-            self.filtered_files = self.all_files[:100]  # Show first 100
-        else:
-            query_lower = query.lower()
-            scored = []
-
-            for full_path, display_path in self.all_files:
-                score = self._fuzzy_score(query_lower, display_path.lower())
-                if score > 0:
-                    scored.append((score, full_path, display_path))
-
-            scored.sort(key=lambda x: -x[0])  # Sort by score descending
-            self.filtered_files = [(f, d) for _, f, d in scored[:100]]
-
         # Add rows
-        for full_path, display_path in self.filtered_files:
+        for full_path, display_path in filtered:
             row = Gtk.ListBoxRow()
             row._file_path = full_path
             row.add_css_class("nvim-popup-list-item")

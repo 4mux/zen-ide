@@ -92,6 +92,11 @@ class TestGlobalSearchDialogSearchBackends:
         cls = find_class(tree, "SearchEngineMixin")
         assert find_method(cls, "_ripgrep_search") is not None
 
+    def test_includes_hidden_files(self):
+        """Ripgrep must use --hidden so dotfiles (.drone, .env, etc.) appear."""
+        source = read_popup_source("search_engine_mixin.py")
+        assert "--hidden" in source
+
 
 class TestGlobalSearchDialogNavigation:
     """Test navigation logic for result rows."""

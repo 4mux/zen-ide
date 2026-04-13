@@ -149,7 +149,11 @@ class SearchEngineMixin:
                 exclude_args.extend(["-g", f"!{pattern}"])
 
             result = subprocess.run(
-                ["rg", "-n", "--no-heading", "--color=never", "-F"] + case_flag + exclude_args + ["--", query] + folders,
+                ["rg", "-n", "--no-heading", "--color=never", "--hidden", "-F"]
+                + case_flag
+                + exclude_args
+                + ["--", query]
+                + folders,
                 capture_output=True,
                 text=True,
                 timeout=30,
