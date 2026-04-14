@@ -22,7 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 build = ["pyinstaller>=6.0.0", "nuitka>=2.0.0", "ordered-set", "zstandard", "Pillow>=10.0.0"]
-dev = ["pytest>=8.0.0", "pyautogui>=0.9.54", "PyGObject-stubs>=2.17.0"]
+dev = ["pytest>=9.0.3", "pyautogui>=0.9.54", "PyGObject-stubs>=2.17.0"]
 
 # System dependencies (not pip-installable, documented here as source of truth)
 # These are installed via Makefile targets that read from this list
