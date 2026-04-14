@@ -2,7 +2,7 @@
 
 Zen IDE has two AI subsystems:
 
-- **AI chat** runs the `claude` or `copilot` CLI directly inside the integrated AI Terminal.
+- **AI chat** runs the `claude`, `gemini`, or `copilot` CLI directly inside the integrated AI Terminal.
 - **Inline completions** still use Copilot-backed ghost text suggestions in the editor.
 
 AI chat is **not API-based anymore**. Zen no longer asks you for Anthropic or OpenAI API keys for chat.
@@ -12,24 +12,27 @@ AI chat is **not API-based anymore**. Zen no longer asks you for Anthropic or Op
 | Feature | Backend | Auth | Notes |
 |---|---|---|---|
 | **AI chat** | `claude` CLI | Claude CLI login | Preferred when available |
-| **AI chat** | `copilot` CLI | GitHub Copilot CLI login | Used when selected or when Claude is unavailable |
+| **AI chat** | `gemini` CLI | Google OAuth | Used when selected or when Claude is unavailable |
+| **AI chat** | `copilot` CLI | GitHub Copilot CLI login | Used when selected or when Claude/Gemini are unavailable |
 | **Inline completions** | Copilot HTTP auth | GitHub Copilot subscription/login | Separate from chat |
 
 ## Setup
 
 ### AI Chat (CLI-based)
 
-Install one or both CLI tools, then authenticate with each tool's own login flow:
+Install one or more CLI tools, then authenticate with each tool's own login flow:
 
 - **Claude CLI** — install `claude`, then run `claude login`
+- **Gemini CLI** — install via `npm install -g @google/gemini-cli`, then run `gemini` and follow the OAuth flow
 - **GitHub Copilot CLI** — install `copilot`, then run `copilot auth`
 
 Zen auto-detects installed CLIs and starts the AI Terminal with the best available option:
 
 1. `claude`
-2. `copilot`
+2. `gemini`
+3. `copilot`
 
-If neither CLI is installed, AI chat cannot start until one is available on your `PATH`.
+If no CLI is installed, AI chat cannot start until one is available on your `PATH`.
 
 ### Inline Completions
 
@@ -45,7 +48,8 @@ Token resolution order:
 
 On startup, Zen IDE checks providers in this order:
 1. **Claude CLI** — looks for `claude`
-2. **Copilot CLI** — looks for `copilot`
+2. **Gemini CLI** — looks for `gemini`
+3. **Copilot CLI** — looks for `copilot`
 
 The first available CLI is activated automatically for AI chat.
 
@@ -55,11 +59,11 @@ Use the provider dropdown in the AI chat header, or set `ai.provider` in `~/.zen
 
 ```json
 {
-  "ai.provider": "copilot_cli"
+  "ai.provider": "gemini_cli"
 }
 ```
 
-Valid values: `"claude_cli"`, `"copilot_cli"`, `""` (auto-detect)
+Valid values: `"claude_cli"`, `"gemini_cli"`, `"copilot_cli"`, `""` (auto-detect)
 
 You can also override the chat model:
 
@@ -74,7 +78,7 @@ You can also override the chat model:
 | Setting | Default | Description |
 |---|---|---|
 | `ai.is_enabled` | `true` | Master toggle for all AI features |
-| `ai.provider` | `""` | Active chat provider (`"claude_cli"`, `"copilot_cli"`, or `""` for auto-detect) |
+| `ai.provider` | `""` | Active chat provider (`"claude_cli"`, `"gemini_cli"`, `"copilot_cli"`, or `""` for auto-detect) |
 | `ai.model` | `""` | Optional chat model override; empty uses the CLI default |
 | `ai.show_inline_suggestions` | `true` | Show ghost text inline completions |
 | `ai.yolo_mode` | `true` | Skip tool-use confirmation prompts |
@@ -102,8 +106,8 @@ To disable only inline suggestions (keep chat):
 ## Troubleshooting
 
 **"AI chat not starting"**
-- Check that `claude` or `copilot` is installed and available on your `PATH`
-- Run `claude --version` or `copilot --version` in a terminal to verify
+- Check that `claude`, `gemini`, or `copilot` is installed and available on your `PATH`
+- Run `claude --version`, `gemini --version`, or `copilot --version` in a terminal to verify
 - Check `ai.is_enabled` is `true`
 
 **"Inline suggestions not working"**

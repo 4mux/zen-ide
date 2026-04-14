@@ -1,6 +1,6 @@
 # AI Chat
 
-Zen IDE includes a multi-session AI chat panel for interactive conversations with GitHub Copilot or Claude Code.
+Zen IDE includes a multi-session AI chat panel for interactive conversations with Claude Code, Gemini CLI, or GitHub Copilot.
 
 ## Opening AI Chat
 

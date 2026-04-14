@@ -12,7 +12,7 @@
 
 Zen IDE's AI system has two independent subsystems:
 
-1. **AI Terminal** — a VTE-based panel that runs the `claude` or `copilot` CLI directly inside a real terminal emulator, with multi-tab session management.
+1. **AI Terminal** — a VTE-based panel that runs the `claude`, `gemini`, or `copilot` CLI directly inside a real terminal emulator, with multi-tab session management.
 2. **Inline Completions** — ghost-text code suggestions in the editor, powered by the Copilot HTTP API (FIM endpoint).
 
 The AI Terminal replaced ~6,400 lines of custom HTTP-streaming, ANSI-buffer, and DrawingArea rendering code with ~800 lines of VTE integration. The CLI tools handle streaming output, tool use, colours, and interactive UX natively.
@@ -64,9 +64,9 @@ Everything else — theme colours, scroll smoothing, keyboard shortcuts, font se
 
 **Key features:**
 
-- **Session persistence** — detects session IDs and resumes via `--resume <id>` (Claude) or `--continue` (Copilot)
-- **Provider switching** — per-tab provider choice (claude_cli or copilot_cli)
-- **Yolo mode** — `--dangerously-skip-permissions` (Claude) or `--yolo` (Copilot)
+- **Session persistence** — detects session IDs and resumes via `--resume <id>` (Claude), `--resume latest` (Gemini), or `--continue` (Copilot)
+- **Provider switching** — per-tab provider choice (claude_cli, gemini_cli, or copilot_cli)
+- **Yolo mode** — `--dangerously-skip-permissions` (Claude) or `--yolo` (Copilot/Gemini)
 - **Tab title inference** — auto-generates meaningful title from first user message
 - **Processing spinner** — braille animation during AI processing via `on_processing_changed` callback
 - **Scroll speed** — customisable via settings
@@ -76,6 +76,7 @@ Everything else — theme colours, scroll smoothing, keyboard shortcuts, font se
 | CLI | Path |
 |-----|------|
 | Claude | `~/.claude/projects/{path-hash}/{session_id}.jsonl` |
+| Gemini | `~/.gemini/history/{project-name}/` |
 | Copilot | `~/.copilot/session-state/{session_id}/events.jsonl` |
 
 ---
@@ -146,14 +147,16 @@ save_state() → [{
 When `ai.provider` is empty or unavailable:
 
 1. `claude` binary (preferred)
-2. `copilot` binary (fallback)
-3. Error message in VTE if neither found
+2. `gemini` binary
+3. `copilot` binary (fallback)
+4. Error message in VTE if none found
 
 ### Binary search paths
 
 | CLI | Search paths |
 |-----|-------------|
 | Claude | `~/.local/bin/claude`, `/usr/local/bin/claude`, `$PATH` |
+| Gemini | NVM dirs (`~/.nvm/versions/node/*/bin/gemini`), `~/.local/bin/gemini`, `/usr/local/bin/gemini`, `$PATH` |
 | Copilot | NVM dirs (`~/.nvm/versions/node/*/bin/copilot`), `~/.local/bin/copilot`, `/usr/local/bin/copilot`, `$PATH` |
 
 ### CLI picker popup
@@ -163,6 +166,7 @@ Clicking the header label opens a popup:
 ```
 Select AI
   ✓ Claude
+    Gemini
     Copilot
 ```
 
@@ -174,7 +178,7 @@ Switching providers: persists to `ai.provider` → SIGTERM current process → r
 
 `src/popups/ai_settings_popup.py` — accessed via keybinding or menu.
 
-- **Provider selector** — dropdown: Claude CLI / Copilot CLI
+- **Provider selector** — dropdown: Claude CLI / Gemini CLI / Copilot CLI
 - **Model selector** — dynamically populated via async background fetch
 - Handles dropdown popover focus gracefully
 
@@ -190,6 +194,7 @@ The IDE injects editor state into AI CLIs so they have awareness of the current 
 |-----------|--------|--------|
 | Environment variables | Both CLIs | Set before `spawn_shell()` |
 | `--append-system-prompt` | Claude CLI | `CLIProvider.append_ide_context()` |
+| `GEMINI.md` in project root | Gemini CLI | Written between managed markers |
 | `~/.copilot/copilot-instructions.md` | Copilot CLI | Written between managed markers |
 | `~/.zen_ide/ide_state.json` | Both CLIs (on-demand) | `IdeStateWriter` on tab switch |
 
@@ -222,6 +227,7 @@ during this conversation, read: ~/.zen_ide/ide_state.json
 ```
 
 - **Claude:** appended via `--append-system-prompt "<context>"`
+- **Gemini:** written to `GEMINI.md` in the project root between `<!-- zen-ide-context-start -->` and `<!-- zen-ide-context-end -->` markers
 - **Copilot:** written to `~/.copilot/copilot-instructions.md` between `<!-- zen-ide-context-start -->` and `<!-- zen-ide-context-end -->` markers
 
 ### IDE state file
@@ -417,6 +423,7 @@ ZenIDE (main window)
 ├── CLIManager (singleton)
 │   ├── _providers: dict[str, CLIProvider]
 │   │   ├── ClaudeCLI
+│   │   ├── GeminiCLI
 │   │   └── CopilotCLI
 │   ├── availability(), resolve(), fetch_models()
 │   └── build_argv(), list_sessions()
@@ -476,7 +483,7 @@ On IDE open, `window_state._deferred_init_panels()` calls `ai_chat.spawn_shell()
 | Key | Values | Default | Description |
 |-----|--------|---------|-------------|
 | `ai.is_enabled` | `true` / `false` | `true` | Master toggle — hides panel when `false` |
-| `ai.provider` | `""`, `"claude_cli"`, `"copilot_cli"` | `""` (auto) | Active CLI; empty = auto-detect |
+| `ai.provider` | `""`, `"claude_cli"`, `"gemini_cli"`, `"copilot_cli"` | `""` (auto) | Active CLI; empty = auto-detect |
 | `ai.yolo_mode` | `true` / `false` | `true` | Skip tool permission prompts |
 | `ai.show_inline_suggestions` | `true` / `false` | `true` | Ghost-text inline completions |
 | `ai.inline_completion.trigger_delay_ms` | number | `500` | Debounce delay for inline suggestions |

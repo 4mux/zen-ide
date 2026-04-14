@@ -22,8 +22,9 @@ class CLIManager:
     def _register_builtins(self) -> None:
         from ai.cli.claude_cli import ClaudeCLI
         from ai.cli.copilot_cli import CopilotCLI
+        from ai.cli.gemini_cli import GeminiCLI
 
-        for cls in (CopilotCLI, ClaudeCLI):
+        for cls in (CopilotCLI, GeminiCLI, ClaudeCLI):
             p = cls()
             self._providers[p.id] = p
 

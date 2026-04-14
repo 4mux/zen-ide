@@ -25,7 +25,7 @@
 - 👁️ **File Previews** — Markdown, HTML, OpenAPI/Swagger, images, hex viewer
 - 🔀 **Git** — Gutter diff markers, side-by-side diff view, commit history navigation, inline revert
 - 🐛 **Debugger** — Built-in Python (bdb) and C/C++ (GDB) debugging with breakpoints, step controls, variable inspection, call stack, and expression evaluation — zero config needed
-- 🤖 **AI Chat** — Integrated AI Terminal running `claude` or `copilot` CLI with multi-tab sessions, plus inline ghost text completions
+- 🤖 **AI Chat** — Integrated AI Terminal running `claude`, `gemini`, or `copilot` CLI with multi-tab sessions, plus inline ghost text completions
 - 💻 **Terminal** — VTE with 256-color support, file path linking, shell aliases, workspace folder picker
 - 📝 **Dev Pad** (`Cmd+.`) — Activity tracking, notes, quick resume links
 - 🎨 **Sketch Pad** (`Cmd+Shift+D`) — ASCII/Unicode diagram editor, opens `.zen_sketch` files in editor with box-drawing shapes, arrows, export to PNG
@@ -67,12 +67,12 @@ Syntax highlighting via GtkSourceView built-in specs (100+ languages). .
 
 ## AI Setup
 
-Zen IDE runs the `claude` or `copilot` CLI directly inside the integrated AI Terminal.
+Zen IDE runs the `claude`, `gemini`, or `copilot` CLI directly inside the integrated AI Terminal.
 
-- **AI chat** — install/authenticate the Claude CLI and/or GitHub Copilot CLI; Zen auto-detects what is available
+- **AI chat** — install/authenticate one or more of Claude CLI, Gemini CLI, or GitHub Copilot CLI; Zen auto-detects what is available
 - **Inline completions** — ghost text suggestions are still powered by Copilot auth detected from your local machine
 
-Open AI chat → click the provider dropdown → choose Claude or Copilot. See [`docs/wiki/AI-Setup.md`](docs/wiki/AI-Setup.md) for details.
+Open AI chat → click the provider dropdown → choose Claude, Gemini, or Copilot. See [`docs/wiki/AI-Setup.md`](docs/wiki/AI-Setup.md) for details.
 
 ## Makefile Commands
 
