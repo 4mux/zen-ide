@@ -107,65 +107,118 @@ Rules:
 
 $CONTEXT"
 
-generate_with_ai() {
-    local ai_bin=""
+__find_ai_candidates() {
+    local candidates=()
 
-    # Try claude first, then copilot (check PATH, then common install locations)
-    for candidate in claude copilot; do
-        if command -v "$candidate" &>/dev/null; then
-            ai_bin=$(command -v "$candidate")
-            break
+    # Check PATH
+    for name in claude copilot; do
+        if command -v "$name" &>/dev/null; then
+            candidates+=("$(command -v "$name")")
         fi
     done
 
-    # If not in PATH, search NVM and common install dirs
-    if [ -z "$ai_bin" ]; then
-        local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
-        if [ -d "$nvm_dir/versions/node" ]; then
-            for v in $(ls -r "$nvm_dir/versions/node/" 2>/dev/null); do
-                for name in claude copilot; do
-                    local c="$nvm_dir/versions/node/$v/bin/$name"
-                    if [ -x "$c" ]; then
-                        ai_bin="$c"
-                        break 2
-                    fi
-                done
+    # Search NVM install dirs
+    local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
+    if [ -d "$nvm_dir/versions/node" ]; then
+        for v in $(ls -r "$nvm_dir/versions/node/" 2>/dev/null); do
+            for name in claude copilot; do
+                local c="$nvm_dir/versions/node/$v/bin/$name"
+                if [ -x "$c" ]; then
+                    candidates+=("$c")
+                fi
             done
-        fi
-    fi
-
-    if [ -z "$ai_bin" ]; then
-        for c in "$HOME/.local/bin/claude" "$HOME/.local/bin/copilot" \
-                 "/usr/local/bin/claude" "/usr/local/bin/copilot"; do
-            if [ -x "$c" ]; then
-                ai_bin="$c"
-                break
-            fi
         done
     fi
+
+    # Common install locations
+    for c in "$HOME/.local/bin/claude" "$HOME/.local/bin/copilot" \
+             "/usr/local/bin/claude" "/usr/local/bin/copilot"; do
+        if [ -x "$c" ]; then
+            candidates+=("$c")
+        fi
+    done
+
+    # Deduplicate (preserve order)
+    local seen=()
+    for c in "${candidates[@]}"; do
+        local resolved
+        resolved=$(realpath "$c" 2>/dev/null || echo "$c")
+        local already=false
+        for s in "${seen[@]+"${seen[@]}"}"; do
+            if [ "$s" = "$resolved" ]; then already=true; break; fi
+        done
+        if ! $already; then
+            seen+=("$resolved")
+            echo "$c"
+        fi
+    done
+}
+
+__ai_health_check() {
+    local bin="$1"
+    local name
+    name=$(basename "$bin")
+
+    if [ "$name" = "claude" ]; then
+        echo "hi" | "$bin" --print &>/dev/null
+    elif [ "$name" = "copilot" ]; then
+        "$bin" -p "hi" --silent &>/dev/null
+    else
+        return 1
+    fi
+}
+
+__ai_generate() {
+    local bin="$1"
+    local prompt_file="$2"
+    local name
+    name=$(basename "$bin")
+
+    if [ "$name" = "claude" ]; then
+        cat "$prompt_file" | "$bin" --print 2>/dev/null
+    elif [ "$name" = "copilot" ]; then
+        "$bin" -p "$(cat "$prompt_file")" --silent --allow-all-tools 2>/dev/null
+    else
+        return 1
+    fi
+}
+
+generate_with_ai() {
+    local candidates
+    candidates=$(__find_ai_candidates)
+
+    if [ -z "$candidates" ]; then
+        return 1
+    fi
+
+    # Find first usable CLI via health check
+    local ai_bin=""
+    while IFS= read -r candidate; do
+        local name
+        name=$(basename "$candidate")
+        echo "Checking $name ..." >&2
+        if __ai_health_check "$candidate"; then
+            ai_bin="$candidate"
+            break
+        else
+            echo "  $name not usable, trying next ..." >&2
+        fi
+    done <<< "$candidates"
 
     if [ -z "$ai_bin" ]; then
         return 1
     fi
 
-    local ai_output=""
     local ai_name
     ai_name=$(basename "$ai_bin")
     echo "Using $ai_name to generate PR description ..." >&2
 
-    # Write prompt to temp file to avoid ARG_MAX limits
     local prompt_file
     prompt_file=$(mktemp)
     echo "$AI_PROMPT" > "$prompt_file"
 
-    if [ "$ai_name" = "claude" ]; then
-        ai_output=$(cat "$prompt_file" | "$ai_bin" --print 2>/dev/null) || { rm -f "$prompt_file"; return 1; }
-    elif [ "$ai_name" = "copilot" ]; then
-        ai_output=$("$ai_bin" -p "$(cat "$prompt_file")" --silent --allow-all-tools 2>&1) || { rm -f "$prompt_file"; echo "$ai_output" >&2; return 1; }
-    else
-        rm -f "$prompt_file"
-        return 1
-    fi
+    local ai_output=""
+    ai_output=$(__ai_generate "$ai_bin" "$prompt_file") || { rm -f "$prompt_file"; return 1; }
     rm -f "$prompt_file"
 
     if [ -z "$ai_output" ]; then
