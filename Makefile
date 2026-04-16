@@ -62,12 +62,13 @@ install-py: ## Create venv and install all dependencies (including dev and build
 install-system-deps: ## Install system dependencies (GTK4 stack via brew/apt)
 ifeq ($(UNAME_S),Darwin)
 	@echo "Installing GTK4 system dependencies via Homebrew..."
-	brew install gtk4 gtksourceview5 vte3 libadwaita gobject-introspection pkg-config ripgrep 2>/dev/null || true
+	brew install gtk4 gtksourceview5 vte3 libadwaita gobject-introspection pkg-config ripgrep gstreamer 2>/dev/null || true
 else ifeq ($(UNAME_S),Linux)
 	@echo "Installing GTK4 system dependencies via apt..."
 	sudo apt-get update
 	sudo apt-get install -y libgirepository1.0-dev libgirepository-2.0-dev libcairo2-dev python3-gi python3-gi-cairo \
-		gir1.2-gtk-4.0 gir1.2-gtksource-5 gir1.2-adw-1 gir1.2-vte-3.91 ripgrep
+		gir1.2-gtk-4.0 gir1.2-gtksource-5 gir1.2-adw-1 gir1.2-vte-3.91 \
+		gir1.2-gst-plugins-base-1.0 ripgrep
 endif
 
 
