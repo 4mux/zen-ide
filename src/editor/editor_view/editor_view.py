@@ -260,7 +260,7 @@ class EditorView(
             return False
 
         tab = self.tabs[tab_id]
-        if getattr(tab, "_is_image", False):
+        if getattr(tab, "_is_image", False) or getattr(tab, "_is_audio", False):
             return False
 
         if tab.is_new and not tab.file_path:

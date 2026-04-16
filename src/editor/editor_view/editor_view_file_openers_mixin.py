@@ -4,7 +4,7 @@ import os
 
 from gi.repository import Gtk
 
-from constants import IMAGE_EXTENSIONS
+from constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS
 
 from .editor_tab import EditorTab
 
@@ -115,6 +115,56 @@ class EditorViewFileOpenersMixin:
 
         content = sketch_tab.widget.get_content() if hasattr(sketch_tab.widget, "get_content") else ""
         log_sketch_activity(content=content, file_path=file_path)
+        return True
+
+    def open_audio(self, file_path: str, switch_to: bool = True) -> bool:
+        """Open an audio file in a playback tab."""
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext not in AUDIO_EXTENSIONS:
+            return False
+
+        for tab_id, tab in self.tabs.items():
+            if tab.file_path == file_path:
+                if switch_to:
+                    page_num = self._get_page_num_for_tab_id(tab_id)
+                    if page_num >= 0:
+                        self.notebook.set_current_page(page_num)
+                if self.on_file_opened:
+                    self.on_file_opened(file_path)
+                return True
+
+        self._close_welcome_tab()
+        tab_id = self._next_tab_id
+        self._next_tab_id += 1
+
+        from ..preview.audio_player import AudioPlayer
+
+        player = AudioPlayer(file_path)
+        player._zen_tab_id = tab_id
+
+        from shared.ui.tab_button import TabButton
+
+        tab_btn = TabButton(tab_id, os.path.basename(file_path), on_close=lambda tid: self._do_close_tab_by_id(tid))
+        page_num = self.notebook.append_page(player, None)
+        self._tab_bar.append(tab_btn)
+        click = Gtk.GestureClick.new()
+        click.connect("pressed", lambda g, n, x, y, tid=tab_id: self._select_tab_by_id(tid))
+        tab_btn.add_controller(click)
+
+        audio_tab = EditorTab(file_path=file_path)
+        audio_tab._is_audio = True
+        audio_tab._tab_button = tab_btn
+        audio_tab._tab_id = tab_id
+        audio_tab._audio_player = player
+        self.tabs[tab_id] = audio_tab
+
+        if switch_to:
+            self.notebook.set_current_page(page_num)
+        if self.on_file_opened:
+            self.on_file_opened(file_path)
+        from dev_pad import log_file_activity
+
+        log_file_activity(file_path, "open")
         return True
 
     def open_binary(self, file_path: str, switch_to: bool = True) -> bool:

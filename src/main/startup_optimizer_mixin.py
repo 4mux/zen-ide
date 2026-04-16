@@ -354,15 +354,18 @@ class StartupOptimizerMixin:
 
     def _deferred_init_phase2_files(self):
         """Phase 2b: restore last active file and schedule remaining files."""
-        from constants import IMAGE_EXTENSIONS
+        from constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS
         from shared.settings import get_setting
 
         last_file = getattr(self, "_deferred_last_file", "")
         open_files = getattr(self, "_deferred_open_files_list", [])
 
         if last_file and os.path.isfile(last_file):
-            if os.path.splitext(last_file)[1].lower() in IMAGE_EXTENSIONS:
+            ext = os.path.splitext(last_file)[1].lower()
+            if ext in IMAGE_EXTENSIONS:
                 self.editor_view.open_image(last_file)
+            elif ext in AUDIO_EXTENSIONS:
+                self.editor_view.open_audio(last_file)
             else:
                 self.editor_view.open_file(last_file)
 
@@ -444,7 +447,7 @@ class StartupOptimizerMixin:
 
     def _open_deferred_files(self, files, last_file):
         """Open remaining files one per idle tick to avoid blocking the UI."""
-        from constants import IMAGE_EXTENSIONS
+        from constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS
 
         pending = list(files)
 
@@ -452,6 +455,8 @@ class StartupOptimizerMixin:
             ext = os.path.splitext(fp)[1].lower()
             if ext in IMAGE_EXTENSIONS:
                 self.editor_view.open_image(fp, switch_to=switch_to)
+            elif ext in AUDIO_EXTENSIONS:
+                self.editor_view.open_audio(fp, switch_to=switch_to)
             else:
                 self.editor_view.open_file(fp, switch_to=switch_to)
 

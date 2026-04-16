@@ -306,7 +306,7 @@ class EditorTab(EditorTabInputMixin, EditorTabHoverMixin, EditorTabThemeMixin, E
 
     def save_file(self, file_path: str = None) -> bool:
         """Save content to a file."""
-        if getattr(self, "_is_image", False):
+        if getattr(self, "_is_image", False) or getattr(self, "_is_audio", False):
             return False
         path = file_path or self.file_path
         if not path:

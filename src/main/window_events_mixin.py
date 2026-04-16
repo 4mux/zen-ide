@@ -49,7 +49,7 @@ class WindowEventsMixin:
 
     def _on_tree_file_selected(self, file_path: str):
         """Handle file selection from tree view."""
-        from constants import IMAGE_EXTENSIONS
+        from constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS
 
         # Close diff view if open before switching to a new file
         if self.split_panels.is_visible("diff"):
@@ -62,6 +62,8 @@ class WindowEventsMixin:
                 ext = os.path.splitext(file_path)[1].lower()
                 if ext in IMAGE_EXTENSIONS:
                     self.editor_view.open_image(file_path)
+                elif ext in AUDIO_EXTENSIONS:
+                    self.editor_view.open_audio(file_path)
                 else:
                     # Check if file is binary
                     from editor.preview.binary_viewer import is_binary_file

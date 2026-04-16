@@ -5,7 +5,7 @@ import time
 
 from gi.repository import GLib, Gtk, GtkSource
 
-from constants import IMAGE_EXTENSIONS, MINIMAP_WIDTH
+from constants import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, MINIMAP_WIDTH
 from shared.settings import get_setting
 
 from . import MD_EXTENSIONS, OPENAPI_EXTENSIONS, SKETCH_EXTENSION
@@ -173,6 +173,9 @@ class EditorViewTabsMixin:
         if ext in IMAGE_EXTENSIONS:
             return self.open_image(file_path, switch_to=switch_to)
 
+        if ext in AUDIO_EXTENSIONS:
+            return self.open_audio(file_path, switch_to=switch_to)
+
         if ext == SKETCH_EXTENSION:
             return self._open_sketch_file(file_path, switch_to=switch_to)
 
@@ -202,7 +205,7 @@ class EditorViewTabsMixin:
         norm = os.path.normpath(file_path)
         for tab_id, tab in self.tabs.items():
             if tab.file_path and os.path.normpath(tab.file_path) == norm:
-                if getattr(tab, "_is_image", False):
+                if getattr(tab, "_is_image", False) or getattr(tab, "_is_audio", False):
                     return
                 if not tab.modified:
                     if time.monotonic() - tab._last_internal_save_time < 2.0:

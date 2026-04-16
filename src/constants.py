@@ -143,3 +143,6 @@ WORKSPACE_EXTENSIONS = (".zen-workspace", ".code-workspace")
 
 # Image file extensions supported for preview
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".tif", ".svg"}
+
+# Audio file extensions supported for playback
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wma"}
